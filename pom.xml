@@ -53,7 +53,7 @@
 
     <properties>
         <!-- project settings -->
-        <revision>1.0.0-RC1</revision>
+        <revision>1.0.0-RC2</revision>
 
         <release.root.dir>${maven.multiModuleProjectDirectory}/gemini-release</release.root.dir>
         <release.lib.dir>${release.root.dir}/lib</release.lib.dir>
