@@ -43,9 +43,8 @@ import net.bytebuddy.matcher.ElementMatchers;
 /**
  * Aggregates all {@link FactoryContext} instances, one per discovered aspect application.
  * <p>
- * Loads global factory settings (shared ClassLoader flag, conflict ClassLoader groups,
- * enabled factory expressions) and creates a {@link FactoryContext} for each aspect app
- * found in the launcher's {@code aspectapps/} directory.
+ * Loads global factory settings (enabled factory expressions) and creates a {@link FactoryContext} 
+ * for each aspect application found in the launcher's {@code aspectapps/} directory.
  * </p>
  *
  * @author   martin.liu
@@ -62,9 +61,6 @@ class FactoriesContext implements Closeable {
 
     // global advisor factory settings
     private ElementMatcher<String> enabledFactoryMatcher;
-
-    private boolean shareAspectClassLoader;
-    private List<Set<String>> conflictTargetClassLoaders;
 
     private boolean autoComputeAsm = false;
 
@@ -123,14 +119,6 @@ class FactoriesContext implements Closeable {
                 this.enabledFactoryMatcher = ElementMatchers.any();
             }
         }
-
-        {
-            this.shareAspectClassLoader = configView.getAsBoolean("aop.factories.shareAspectClassLoader", false);
-            this.conflictTargetClassLoaders = parseConflictTargetClassLoaders(
-                    configView.getAsString("aop.factories.conflictTargetClassLoaders", "") );
-
-            this.autoComputeAsm = configView.getAsBoolean("aop.factories.autoComputeAsm", false);
-        }
     }
 
     List<Set<String>> parseConflictTargetClassLoaders(String conflictTargetClassLoadersStr) {
@@ -175,26 +163,6 @@ class FactoriesContext implements Closeable {
         return factoryContexts;
     }
 
-
-    /**
-     * Returns {@code true} if a single {@link io.gemini.aop.factory.classloader.AspectClassLoader}
-     * instance should be shared across multiple target class loaders when there is no conflict.
-     *
-     * @return {@code true} if aspect class loader sharing is enabled
-     */
-    public boolean isShareAspectClassLoader() {
-        return shareAspectClassLoader;
-    }
-
-    /**
-     * Returns the list of conflict groups — sets of class loader names that may load the same classes
-     * and therefore must not share an {@link io.gemini.aop.factory.classloader.AspectClassLoader}.
-     *
-     * @return unmodifiable list of conflict class loader name sets
-     */
-    public List<Set<String>> getConflictTargetClassLoaders() {
-        return Collections.unmodifiableList( conflictTargetClassLoaders );
-    }
 
     /**
      * Returns {@code true} if ASM frame computation should be performed automatically

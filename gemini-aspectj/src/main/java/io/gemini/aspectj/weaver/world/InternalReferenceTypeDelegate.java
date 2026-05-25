@@ -25,7 +25,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.StringTokenizer;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.aspectj.lang.annotation.Aspect;
@@ -50,11 +49,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.gemini.aspectj.weaver.ExprParser;
-import io.gemini.core.classloader.ThreadContext;
-import io.gemini.core.concurrent.ConcurrentReferenceHashMap;
 import io.gemini.core.pool.TypeResolutionInspector;
 import io.gemini.core.pool.TypeResolutionInspector.ResolutionLevel;
-import io.gemini.core.util.ClassLoaderUtils;
 import io.gemini.core.util.MethodUtils;
 import io.gemini.core.util.PlaceholderHelper;
 import net.bytebuddy.description.annotation.AnnotationDescription;
@@ -106,8 +102,7 @@ class InternalReferenceTypeDelegate implements ReferenceTypeDelegate {
 
     private String genericSignature = null;
 
-    private List<PointcutMethod> pointcutMethods;
-    private ConcurrentMap<ClassLoader, ResolvedMember[]> pointcutsPerClassLoaderMap;
+    private ResolvedPointcutDefinition[] pointcuts;
 
 
     /**
@@ -443,25 +438,17 @@ class InternalReferenceTypeDelegate implements ReferenceTypeDelegate {
      */
     @Override
     public ResolvedMember[] getDeclaredPointcuts() {
+        if (this.pointcuts != null)
+            return this.pointcuts;
+
         List<PointcutMethod> pointcutMethods = this.getDeclaredPointcutMethods(typeDescription);
         if (pointcutMethods.size() == 0)
             return new ResolvedPointcutDefinition[0];
 
-        this.pointcutsPerClassLoaderMap = this.pointcutsPerClassLoaderMap == null 
-                ? new ConcurrentReferenceHashMap<>() : this.pointcutsPerClassLoaderMap;
-
-        // cache declared pointcuts per target class loader to avoid cached pointcut referring to 
-        // same Resolved type, and mismatching to target type under different target class loader.
-        return this.pointcutsPerClassLoaderMap.computeIfAbsent(
-                ClassLoaderUtils.maskNull(ThreadContext.getContextClassLoader()), 
-                key -> createDeclaredPointcuts(pointcutMethods)
-        );
+        return (pointcuts = createDeclaredPointcuts(pointcutMethods));
     }
 
     private List<PointcutMethod> getDeclaredPointcutMethods(TypeDescription typeDescription) {
-        if (pointcutMethods != null)
-            return pointcutMethods;
-
         List<PointcutMethod> pointcutMethods = new CopyOnWriteArrayList<>();
         for (MethodDescription methodDescription : typeDescription.getDeclaredMethods()) {
             AnnotationList filter = methodDescription.getDeclaredAnnotations().filter(
@@ -471,10 +458,10 @@ class InternalReferenceTypeDelegate implements ReferenceTypeDelegate {
             pointcutMethods.add(
                     new PointcutMethod(methodDescription, typeWorld.getPlaceholderHelper(), filter.get(0)) );
         }
-        return (this.pointcutMethods = pointcutMethods);
+        return pointcutMethods;
     }
 
-    private ResolvedMember[] createDeclaredPointcuts(List<PointcutMethod> pointcutMethods) {
+    private ResolvedPointcutDefinition[] createDeclaredPointcuts(List<PointcutMethod> pointcutMethods) {
         List<ResolvedPointcutDefinition> pointcutDefs = new ArrayList<ResolvedPointcutDefinition>(pointcutMethods.size());
         PointcutParser pointcutParser = new PointcutParser(typeWorld);
 

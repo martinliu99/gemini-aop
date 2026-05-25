@@ -41,7 +41,6 @@ import io.gemini.api.aop.Joinpoint;
 import io.gemini.api.aop.Joinpoint.MutableJoinpoint;
 import io.gemini.api.aop.Joinpoint.ProceedingJoinpoint;
 import io.gemini.core.bootstrap.BootstrapClassConsumer;
-import io.gemini.core.classloader.ThreadContext;
 import io.gemini.core.util.Assert;
 import io.gemini.core.util.ClassUtils;
 import io.gemini.core.util.CollectionUtils;
@@ -586,13 +585,10 @@ public interface Joinpoints {
             Assert.notNull(aopContext, "'aopContext' must not be null.");
             this.aopContext = aopContext;
 
-            ClassLoader existingClassLoader = ThreadContext.getContextClassLoader();
 
             Class<?> targetClass = descriptor.getTargetClass();
             ClassLoader targetClassLoader = targetClass.getClassLoader();
             try {
-                ThreadContext.setContextClassLoader(targetClassLoader);  // set targetClassLoader
-
                 doInitialize(descriptor, targetObject, arguments);
             } catch (Throwable t) {
                 if (LOGGER.isWarnEnabled())
@@ -604,8 +600,6 @@ public interface Joinpoints {
                             descriptor.getAccessibleName(), t);
 
                 Throwables.throwIfRequired(t);
-            } finally {
-                ThreadContext.setContextClassLoader(existingClassLoader);
             }
         }
 
@@ -698,13 +692,9 @@ public interface Joinpoints {
                 return null;
             }
 
-            ClassLoader existingClassLoader = ThreadContext.getContextClassLoader();
-
             String targetTypeName = getTargetClass().getName();
             ClassLoader targetClassLoader = getTargetClass().getClassLoader();
             try {
-                ThreadContext.setContextClassLoader(targetClassLoader);  // set targetClassLoader
-
                 if (dispatchBeforeAdvice) {
                     this.doInvokeBeforeAdvices(targetClassLoader);
                 } else {
@@ -729,8 +719,6 @@ public interface Joinpoints {
 
                 Throwables.throwIfRequired(t);
                 return null;
-            } finally {
-                ThreadContext.setContextClassLoader(existingClassLoader);
             }
         }
 
@@ -1053,14 +1041,10 @@ public interface Joinpoints {
             Assert.notNull(aopContext, "'aopContext' must not be null.");
             this.aopContext = aopContext;
 
-            ClassLoader existingClassLoader = ThreadContext.getContextClassLoader();
-
             Class<?> targetClass = descriptor.getTargetClass();
             String targetTypeName = targetClass.getName();
             ClassLoader targetClassLoader = targetClass.getClassLoader();
             try {
-                ThreadContext.setContextClassLoader(targetClassLoader);  // set targetClassLoader
-
                 doInitialize(descriptor, targetObject, arguments);
             } catch (Throwable t) {
                 if (LOGGER.isWarnEnabled())
@@ -1074,8 +1058,6 @@ public interface Joinpoints {
                     );
 
                 Throwables.throwIfRequired(t);
-            } finally {
-                ThreadContext.setContextClassLoader(existingClassLoader);
             }
         }
 
@@ -1110,13 +1092,9 @@ public interface Joinpoints {
          */
         @Override
         public T dispatch() throws Throwable {
-            ClassLoader existingClassLoader = ThreadContext.getContextClassLoader();
-
             String targetTypeName = getTargetClass().getName();
             ClassLoader targetClassLoader = getTargetClass().getClassLoader();
             try {
-                ThreadContext.setContextClassLoader(targetClassLoader);  // set targetClassLoader
-
                 return doDispatch();
             } catch (Throwable t) {
                 if (LOGGER.isWarnEnabled())
@@ -1140,8 +1118,6 @@ public interface Joinpoints {
                 // throw fatal error
                 Throwables.throwIfRequired(t);
                 return null;
-            } finally {
-                ThreadContext.setContextClassLoader(existingClassLoader);
             }
         }
 

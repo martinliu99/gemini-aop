@@ -24,17 +24,14 @@ import org.aspectj.weaver.UnresolvedType;
 import io.gemini.aspectj.weaver.TypeWorld;
 import io.gemini.aspectj.weaver.TypeWorldFactory;
 import io.gemini.aspectj.weaver.world.BytebuddyWorld;
-import io.gemini.core.classloader.ThreadContext;
 import io.gemini.core.util.PlaceholderHelper;
-import net.bytebuddy.description.type.TypeDescription;
 
 
 /**
  * An AspectJ {@link TypeWorld} scoped to an aspect application.
  * <p>
- * Resolves types by first consulting the target class loader's type world,
- * then falling back to the aspect class loader's own classpath. Primitive types
- * and the aspect class itself are always resolved from the aspect classpath.
+ * Resolves types by first consulting the aspect class loader's own classpath,
+ * then falling back to the target class loader's type world.
  * </p>
  *
  * @author   martin.liu
@@ -54,40 +51,70 @@ public class AspectTypeWorld extends BytebuddyWorld {
     }
 
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public ResolvedType resolve(UnresolvedType unresolvedType, boolean allowMissing) {
-        String aspectType = ThreadContext.getContextAspectType();
-        boolean isAspectType = (aspectType != null && aspectType.equals(unresolvedType.getName()))
-                || unresolvedType.isPrimitiveType();
+    protected AspectClassLoader getAspectClassLoader() {
+        return aspectClassLoader;
+    }
 
-        // 1.resolve target type firstly
-        if (!isAspectType) {
-            ClassLoader targetCL = aspectClassLoader != null 
-                    ? aspectClassLoader.getTargetClassLoader() : null;
 
+    protected TypeWorldFactory getTypeWorldFactory() {
+        return typeWorldFactory;
+    }
+
+
+    public static class PerTargetClassLoader extends AspectTypeWorld {
+
+        /**
+         * @param typePool
+         * @param placeholderHelper
+         * @param aspectClassLoader
+         * @param typeWordlFactory
+         */
+        public PerTargetClassLoader(AspectTypePool typePool, PlaceholderHelper placeholderHelper,
+                AspectClassLoader.PerTargetClassLoader aspectClassLoader, TypeWorldFactory typeWordlFactory) {
+            super(typePool, placeholderHelper, aspectClassLoader, typeWordlFactory);
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public ResolvedType resolve(UnresolvedType unresolvedType, boolean allowMissing) {
+//            // 2.resolve aspect type
+//            if (getAspectClassLoader() != null && !unresolvedType.isPrimitiveType()) {
+//                ClassLoader targetCL = getAspectClassLoader().getTargetClassLoader();
+//            try {
+//                // 1.resolve target type firstly
+//                TypeWorld targetTypeWorld = getTypeWorldFactory().createTypeWorld(targetCL, null);
+//                ResolvedType resolvedType = targetTypeWorld.getWorld().resolve(unresolvedType, allowMissing);
+//                if (resolvedType != null && resolvedType.isMissing() == false)
+//                    return resolvedType;
+//            } catch (Exception ignored) { /* do nothing */ }
+//            }
+//
+//            return super.resolve(unresolvedType, allowMissing);
+
+            // 2.resolve aspect type
             try {
-                TypeWorld targetTypeWorld = typeWorldFactory.createTypeWorld(targetCL, null);
-                ResolvedType resolvedType = targetTypeWorld == null ? null : targetTypeWorld.getWorld().resolve(unresolvedType, allowMissing);
+                ResolvedType resolvedType = super.resolve(unresolvedType, allowMissing);
                 if (resolvedType != null && resolvedType.isMissing() == false)
                     return resolvedType;
             } catch (Exception ignored) { /* do nothing */ }
+
+
+            // 1.resolve target type firstly
+            ClassLoader targetCL = getAspectClassLoader().getTargetClassLoader();
+
+            TypeWorld targetTypeWorld = getTypeWorldFactory().createTypeWorld(targetCL, null);
+            return targetTypeWorld.getWorld().resolve(unresolvedType, allowMissing);
         }
 
-        // 2.resolve aspect type
-        return super.resolve(unresolvedType, allowMissing);
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        protected AspectClassLoader.PerTargetClassLoader getAspectClassLoader() {
+            return (AspectClassLoader.PerTargetClassLoader) super.getAspectClassLoader();
+        }
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public TypeDescription describeType(String typeName) {
-        if (OBJECT_DESCRIPTION.getTypeName().equals(typeName)) 
-            return OBJECT_DESCRIPTION;
-
-        return ((AspectTypePool) typePool).describeAspectType(typeName).resolve();
-    }
 }

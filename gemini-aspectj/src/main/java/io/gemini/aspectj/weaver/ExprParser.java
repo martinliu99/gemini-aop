@@ -53,9 +53,9 @@ import io.gemini.aspectj.weaver.world.ElementExpr.ResourceNameExpr;
 import io.gemini.aspectj.weaver.world.ElementExpr.TypeExpr;
 import io.gemini.aspectj.weaver.world.ElementExpr.TypeNameExpr;
 import io.gemini.aspectj.weaver.world.PointcutParser;
-import io.gemini.core.classloader.ThreadContext;
 import io.gemini.core.util.Assert;
 import io.gemini.core.util.MethodUtils;
+import io.gemini.core.util.Pair;
 import io.gemini.core.util.StringUtils;
 import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.type.TypeDefinition;
@@ -249,16 +249,10 @@ public enum ExprParser {
         pointcutDeclarationScope = pointcutDeclarationScope == null
                 ? TypeDescription.ForLoadedType.of(Object.class) : pointcutDeclarationScope;
 
-        String existingAspectType = ThreadContext.getContextAspectType();
-        try {
-            ThreadContext.setContextAspectType(pointcutDeclarationScope.getTypeName());
-            ResolvedType pointcutDeclarationScopeType = typeWorld.resolve(pointcutDeclarationScope);
+        ResolvedType pointcutDeclarationScopeType = typeWorld.resolve(pointcutDeclarationScope);
 
-            return new PointcutParser(typeWorld).parsePointcut(
-                    pointcutExpression, pointcutDeclarationScopeType, pointcutParameters);
-        } finally {
-            ThreadContext.setContextAspectType(existingAspectType);
-        }
+        return new PointcutParser(typeWorld).parsePointcut(
+                pointcutExpression, pointcutDeclarationScopeType, pointcutParameters);
     }
 
     /**
@@ -283,16 +277,10 @@ public enum ExprParser {
         pointcutDeclarationType = pointcutDeclarationType == null
                 ? TypeDescription.ForLoadedType.of(Object.class) : pointcutDeclarationType;
 
-        String existingAspectType = ThreadContext.getContextAspectType();
-        try {
-            ThreadContext.setContextAspectType(pointcutDeclarationType.getTypeName());
-            ResolvedType pointcutDeclarationScopeType = typeWorld.resolve(pointcutDeclarationType);
+        ResolvedType pointcutDeclarationScopeType = typeWorld.resolve(pointcutDeclarationType);
 
-            return new PointcutParser(typeWorld, supportedPointcutKinds).parsePointcut(
-                    pointcutExpression, pointcutDeclarationScopeType, pointcutParameters);
-        } finally {
-            ThreadContext.setContextAspectType(existingAspectType);
-        }
+        return new PointcutParser(typeWorld, supportedPointcutKinds).parsePointcut(
+                pointcutExpression, pointcutDeclarationScopeType, pointcutParameters);
     }
 
 
@@ -397,15 +385,19 @@ public enum ExprParser {
      * @param methodExpression the AspectJ method signature expression (must include declaring type)
      * @return the matching {@link MethodDescription}, or {@code null} if not found
      */
-    public MethodDescription findMethod(TypeWorld typeWorld, String methodExpression) 
+    public Pair<Integer, MethodDescription> findMethod(TypeWorld typeWorld, String methodExpression) 
             throws ExprParseException, ExprLintException, ExprUnknownException {
         try {
             methodExpression = replaceBooleanOperators(methodExpression);
             ISignaturePattern signaturePattern = new PatternParserV2(methodExpression).parseMethodOrConstructorSignaturePattern();
 
-            IScope resolutionScope = buildResolutionScope(typeWorld, null, Collections.emptyMap());
-            Bindings bindingTable = new Bindings(resolutionScope.getFormalCount());
-            signaturePattern = signaturePattern.resolveBindings(resolutionScope, bindingTable);
+             try {
+                 IScope resolutionScope = buildResolutionScope(typeWorld, null, Collections.emptyMap());
+                 Bindings bindingTable = new Bindings(resolutionScope.getFormalCount());
+                 signaturePattern = signaturePattern.resolveBindings(resolutionScope, bindingTable);
+             } catch (Exception e) {
+                 // TDOO
+             }
 
             List<ExactTypePattern> exactTypePatterns = signaturePattern.getExactDeclaringTypes();
             Assert.isTrue(exactTypePatterns != null && exactTypePatterns.size() == 1, 
@@ -414,9 +406,11 @@ public enum ExprParser {
             ResolvedType resolvedType = exactTypePatterns.get(0).getResolvedExactType(typeWorld.getWorld());
             TypeDescription typeDescription = typeWorld.describeType(resolvedType.getName());
 
+            int index = -1;
             for (MethodDescription methodDescription : MethodUtils.getAllMethodDescriptions(typeDescription)) {
+                index++;
                 if (signaturePattern.matches(typeWorld.resolve(methodDescription), typeWorld.getWorld(), false))
-                    return methodDescription;
+                    return new Pair<>(index, methodDescription);
             }
             return null;
         } catch (Exception e) {

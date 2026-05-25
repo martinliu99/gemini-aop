@@ -45,7 +45,7 @@ public class AdvisorContext implements Closeable {
     private final String targetClassLoaderName;
     private final JavaModule targetJavaModule;
 
-    private final AspectClassLoader classLoader;
+    private final AspectClassLoader.PerTargetClassLoader classLoader;
     private final ObjectFactory objectFactory;
 
     private final TypePool typePool;
@@ -62,7 +62,7 @@ public class AdvisorContext implements Closeable {
 
     protected AdvisorContext(FactoryContext factoryContext, 
             String targetClassLoaderName, JavaModule targetJavaModule,
-            AspectClassLoader classLoader, ObjectFactory objectFactory, 
+            AspectClassLoader.PerTargetClassLoader classLoader, ObjectFactory objectFactory, 
             TypePool typePool, TypePool targetTypePool,
             TypeWorld typeWorld, TypeWorld targetTypeWorld,
             boolean validateContext) {
@@ -196,13 +196,13 @@ public class AdvisorContext implements Closeable {
      */
     static class DefultMatchingContext implements MatchingContext {
 
-        private final AspectClassLoader classLoader;
+        private final AspectClassLoader.PerTargetClassLoader classLoader;
 
         private final TypePool targetTypePool;
         private final TypeWorld targetTypeWorld;
 
 
-        public DefultMatchingContext(AspectClassLoader classLoader, 
+        public DefultMatchingContext(AspectClassLoader.PerTargetClassLoader classLoader, 
                 TypePool targetTypePool, TypeWorld targetTypeWorld) {
             this.classLoader = classLoader;
 

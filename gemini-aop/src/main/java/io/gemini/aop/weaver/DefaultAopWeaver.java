@@ -41,7 +41,6 @@ import io.gemini.aop.weaver.Joinpoints.Descriptor;
 import io.gemini.aop.weaver.support.PointcutAdvisorWeaver;
 import io.gemini.api.aop.AopException;
 import io.gemini.core.bootstrap.BootstrapClassConsumer;
-import io.gemini.core.classloader.ThreadContext;
 import io.gemini.core.concurrent.ConcurrentReferenceHashMap;
 import io.gemini.core.util.ClassLoaderUtils;
 import io.gemini.core.util.CollectionUtils;
@@ -168,12 +167,9 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
         TypeMetrics typeMetrics = aopContext.getAopMetrics().createTypeMetrics(
                 targetClassLoaderAccepted ? targetClassLoader : AopMetrics.REJECTED_CLASS_LOADER, targetTypeName, startedAt);
 
-        ClassLoader existingClassLoader = ThreadContext.getContextClassLoader();
         try {
             if (targetClassLoaderAccepted == false)
                 return false;
-
-            ThreadContext.setContextClassLoader(targetClassLoader);   // set targetClassLoader
 
             // 3.get advisors
             Map<? extends MethodDescription, List<? extends Advisor>> targetMethodAdvisors = 
@@ -194,8 +190,6 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
         } finally {
             typeMetrics.incrTypeWeavingTime(System.nanoTime() - startedAt);
             getAopContext().getAopMetrics().collect(typeMetrics);
-
-            ThreadContext.setContextClassLoader(existingClassLoader);
         }
     }
 
@@ -218,10 +212,7 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
         TypeMetrics typeMetrics = aopContext.getAopMetrics().createTypeMetrics(
                 targetClassLoader, targetTypeName, startedAt);
 
-        ClassLoader existingClassLoader = ThreadContext.getContextClassLoader();
         try {
-            ThreadContext.setContextClassLoader(targetClassLoader);   // set targetClassLoader
-
             for (Entry<String /* methodSignature */, PointcutAdvisorWeaver> entry : targetTypeCache.getAdvisorWeavers().entrySet()) {
                 builder = entry.getValue().weave(builder, targetTypeCache.isLoaded());
             }
@@ -237,8 +228,6 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
             typeMetrics.incrTypeWeavingTime(time);
 
             getAopContext().getAopMetrics().collect(typeMetrics);
-
-            ThreadContext.setContextClassLoader(existingClassLoader);
         }
     }
 
@@ -306,33 +295,26 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
      */
     @Override
     public Object callback(Lookup targetLookup, String methodName, MethodType methodType, Object... arguments) {
-        ClassLoader existingClassLoader = ThreadContext.getContextClassLoader();
+        Class<?> targetType = targetLookup.lookupClass();
+        ClassLoader targetClassLoader = targetType.getClassLoader();
         try {
-            Class<?> targetType = targetLookup.lookupClass();
-            ClassLoader targetClassLoader = targetType.getClassLoader();
-            ThreadContext.setContextClassLoader(targetClassLoader);   // set targetClassLoader
+            int callbaclSlot = (int) arguments[0];
+            return weavedCodeCallbacks.get(callbaclSlot).callback(targetLookup, methodName, methodType, arguments);
+        } catch(Exception e) {
+            if (LOGGER.isWarnEnabled()) 
+                LOGGER.warn("Could not weave target type. \n"
+                        + "  ClassLoader: {}"
+                        + "  TargetType: {}"
+                        + "  CallbaclArgument: {}"
+                        + "  Error reason: {} \n",
+                        targetClassLoader,
+                        targetType,
+                        arguments,
+                        e.getMessage(),
+                        e
+                );
 
-            try {
-                int callbaclSlot = (int) arguments[0];
-                return weavedCodeCallbacks.get(callbaclSlot).callback(targetLookup, methodName, methodType, arguments);
-            } catch(Exception e) {
-                if (LOGGER.isWarnEnabled()) 
-                    LOGGER.warn("Could not weave target type. \n"
-                            + "  ClassLoader: {}"
-                            + "  TargetType: {}"
-                            + "  CallbaclArgument: {}"
-                            + "  Error reason: {} \n",
-                            targetClassLoader,
-                            targetType,
-                            arguments,
-                            e.getMessage(),
-                            e
-                    );
-
-                return null;
-            }
-        } finally {
-            ThreadContext.setContextClassLoader(existingClassLoader);
+            return null;
         }
     }
 

@@ -36,7 +36,6 @@ import io.gemini.api.activation.LauncherConfig;
 import io.gemini.api.classloader.AopClassLoader;
 import io.gemini.core.DiagnosticLevel;
 import io.gemini.core.bootstrap.BootstrapClassConfigurer;
-import io.gemini.core.classloader.ThreadContext;
 import io.gemini.core.concurrent.DaemonThreadFactory;
 import io.gemini.core.config.ConfigView;
 import io.gemini.core.config.ConfigViews;
@@ -89,18 +88,10 @@ public class DefaultAopLauncher implements AopLauncher {
             AopClassLoader aopClassLoader) {
         DeferredLoggerFactory.enableDeferMode();
 
-        ClassLoader existingClassLoader = ThreadContext.getContextClassLoader();
-
         AopWeaver aopWeaver = null;
         ConfigView configView = null;
         LauncherMetrics launcherMetrics = null;
         try {
-            // set AopClassLoader as T.C. ClassLoader
-            // existing T.C. ClassLoader, generally is AppClassLoader, might contain libraries, such as log4j2, 
-            // and conflict with AopClassLoader
-            ThreadContext.setContextClassLoader(aopClassLoader);
-
-
             // 1.load AOP settings
             Map<String, Object> builtinSettings = new LinkedHashMap<>();
             builtinSettings.put("aop.launcher.launchPath", launcherConfig.getLaunchPath().toString());
@@ -170,8 +161,6 @@ public class DefaultAopLauncher implements AopLauncher {
             replayDeferredMessages(configView);
 
             launcherMetrics.startupAopLauncher();
-
-            ThreadContext.setContextClassLoader(existingClassLoader);
         }
     }
 

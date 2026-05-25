@@ -306,7 +306,7 @@ public class AopContext implements Closeable {
      * @return {@code true} if type resolution detection is active
      */
     public boolean isDetectTypeResolution() {
-        return detectTypeResolution || DiagnosticLevel.DISABLED == diagnosticLevel;
+        return detectTypeResolution || DiagnosticLevel.DEBUG == diagnosticLevel;
     }
 
     /** 

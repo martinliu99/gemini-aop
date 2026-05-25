@@ -68,7 +68,7 @@ public class BytebuddyWorld extends World implements TypeWorld {
     protected final TypePool typePool;
     private final PlaceholderHelper placeholderHelper;
 
-    private final ResolvedType objectType;
+    private ResolvedType objectType;
 
     // Used to prevent recursion - we record what we are working on and return it if asked again *whilst* working on it
     private Map<TypeDefinition, TypeVariableReferenceType> typeVariablesInProgress = new ConcurrentHashMap<>();
@@ -87,8 +87,6 @@ public class BytebuddyWorld extends World implements TypeWorld {
 
         this.typePool = typePool;
         this.placeholderHelper = placeholderHelper;
-
-        this.objectType = this.resolve(UnresolvedType.OBJECT);
     }
 
 
@@ -113,6 +111,9 @@ public class BytebuddyWorld extends World implements TypeWorld {
     }
 
     protected ResolvedType getObjectType() {
+        if (this.objectType == null)
+            this.objectType = this.resolve(UnresolvedType.OBJECT);
+
         return objectType;
     }
 
