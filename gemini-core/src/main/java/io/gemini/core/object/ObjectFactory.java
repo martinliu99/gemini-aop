@@ -37,11 +37,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.gemini.api.BaseException;
-import io.gemini.api.annotation.Initializer;
 import io.gemini.core.DiagnosticLevel;
 import io.gemini.core.util.Assert;
 import io.gemini.core.util.ClassUtils;
-import io.gemini.core.util.CollectionUtils;
 import io.gemini.core.util.ReflectionUtils;
 import io.gemini.core.util.StringUtils;
 import io.gemini.core.util.Throwables;
@@ -100,7 +98,7 @@ public interface ObjectFactory extends Closeable {
      * to a matching constructor.
      *
      * @param clazz     the class to instantiate
-     * @param arguments optional constructor arguments (alternating name/value pairs)
+     * @param arguments optional constructor arguments
      * @param <T>       the instance type
      * @return the created instance
      * @throws ObjectsException if instantiation fails
@@ -109,6 +107,7 @@ public interface ObjectFactory extends Closeable {
 
     /**
      * Creates an instance of the given class using the given named arguments map.
+     * This method requires class files compiled with -parameters option.
      *
      * @param clazz     the class to instantiate
      * @param arguments a map of parameter names to argument values
@@ -290,16 +289,49 @@ public interface ObjectFactory extends Closeable {
         @Override
         public <T> T createObject(Class<T> clazz,  Object... arguments) throws ObjectsException {
             Assert.notNull(clazz, "'clazz' must not be null.");
-            Assert.isTrue(isInstantiatable(clazz), "clazz '" + clazz + "' must be top-level or nested, concrete class.");
+            Assert.isTrue(isInstantiatable(clazz), "clazz '" + clazz.getName() + "' must be top-level or nested, concrete class.");
 
             // 1.deduce constructor and instantiate instance if no argument pass in 
             if (arguments == null || arguments.length == 0)
                 return doCreateObject(clazz);
 
 
-            // 2.find constructor and instantiate instance with arguments
-            return createObjectInternal(clazz, CollectionUtils.of(String.class, arguments));
+            // 2.resolve constructor
+            Constructor<T> candidateConstructor = resolveConstructor(clazz, arguments);
+
+            // 3. instantiate instance with arguments
+            try {
+                return doInstantiateObject(clazz, candidateConstructor, arguments);
+            } catch (Exception e) {
+                throw new ObjectsException("Could not instantiate class '" + clazz.getName() + "'.", e);
+            }
         }
+
+        @SuppressWarnings("unchecked")
+        private <T> Constructor<T> resolveConstructor(Class<T> clazz, Object... arguments) {
+            // 1.resolve constructor with arguments
+            Constructor<T>[] constructors = (Constructor<T>[])  clazz.getDeclaredConstructors();
+            for (Constructor<T> constructor : constructors) {
+                if (constructor.getParameterCount() != arguments.length)
+                    continue;
+
+                boolean matched = true;
+                int index = 0;
+                for (Parameter parameter : constructor.getParameters()) {
+                    Object arguement = arguments[index++];
+                    if (arguement == null || !ClassUtils.isAssignableFrom(parameter.getType(), arguement.getClass())) {
+                        matched = false;
+                        break;
+                    }
+                }
+
+                if (matched)
+                    return constructor;
+            }
+
+            throw new ObjectsException("Could not resolve constructor of Class '" + clazz.getName() + "' with arguments " + arguments + ".");
+        }
+
 
         /**
          * {@inheritDoc}
@@ -307,11 +339,58 @@ public interface ObjectFactory extends Closeable {
         @Override
         public <T> T createObject(Class<T> clazz, Map<String, Object> arguments) throws ObjectsException {
             Assert.notNull(clazz, "'clazz' must not be null.");
-            Assert.isTrue(isInstantiatable(clazz), "clazz '" + clazz + "' must be top-level or nested, concrete class.");
+            Assert.isTrue(isInstantiatable(clazz), "clazz '" + clazz.getName() + "' must be top-level or nested, concrete class.");
 
-            // find constructor and instantiate instance with arguments
-            return createObjectInternal(clazz, arguments);
+            // 1.deduce constructor and instantiate instance if no argument pass in 
+            if (arguments == null || arguments.size() == 0)
+                return doCreateObject(clazz);
+
+
+            // 2.resolve constructor
+            Constructor<T> candidateConstructor = resolveConstructor(clazz, arguments);
+
+            // prepare arguments
+            Object[] invocationArgs = new Object[candidateConstructor.getParameterCount()];
+            int i = 0;
+            for (Parameter parameter : candidateConstructor.getParameters()) {
+                // class file contains parameter names.
+                String parameterName = parameter.getName();
+                invocationArgs[i++] = arguments.get(parameterName);
+            }
+
+            // 3.instantiate instance with arguments
+            try {
+                return doInstantiateObject(clazz, candidateConstructor, invocationArgs);
+            } catch (Exception e) {
+                throw new ObjectsException("Could not instantiate class '" + clazz.getName() + "'.", e);
+            }
         }
+
+        @SuppressWarnings("unchecked")
+        private <T> Constructor<T> resolveConstructor(Class<T> clazz, Map<String, Object> arguments) {
+            // 1.resolve constructor with arguments
+            Constructor<T>[] constructors = (Constructor<T>[])  clazz.getDeclaredConstructors();
+            for (Constructor<T> constructor : constructors) {
+                if (constructor.getParameterCount() != arguments.size())
+                    continue;
+
+                boolean matched = true;
+                for (Parameter parameter : constructor.getParameters()) {
+                    String parameterName = parameter.getName();
+                    Object arguement = arguments.get(parameterName);
+                    if (arguement == null || !ClassUtils.isAssignableFrom(parameter.getType(), arguement.getClass())) {
+                        matched = false;
+                        break;
+                    }
+                }
+
+                if (matched)
+                    return constructor;
+            }
+
+            throw new ObjectsException("Could not resolve constructor of Class '" + clazz.getName() + "' with arguments " + arguments + ".");
+        }
+
 
         protected <T> T doInstantiateObject(Class<T> clazz, Constructor<T> constructor, Object[] arguments) 
                 throws InstantiationException, IllegalAccessException, IllegalArgumentException, InvocationTargetException {
@@ -328,54 +407,6 @@ public interface ObjectFactory extends Closeable {
 
         protected abstract <T> T doCreateObject(Class<T> clazz) throws ObjectsException;
 
-        @SuppressWarnings("unchecked")
-        private <T> T createObjectInternal(Class<T> clazz, Map<String, Object> arguments) {
-            // find constructor with @Initializer
-            Constructor<T> candidateConstructor = null;
-            Constructor<T>[] constructors = (Constructor<T>[])  clazz.getDeclaredConstructors();
-            for (Constructor<T> constructor : constructors) {
-                if (constructor.getAnnotationsByType(Initializer.class) == null)
-                    continue;
-
-                if (candidateConstructor == null)
-                    candidateConstructor = constructor;
-                else
-                    throw new ObjectsException("Class [" + clazz.getName() + "] contains multiple constructors annotated with @" + Initializer.class.getName());
-            }
-
-            if (candidateConstructor == null) {
-                if (constructors.length == 0)
-                    candidateConstructor = constructors[0];
-                else
-                    throw new ObjectsException("Class [" + clazz.getName() + "] contains no constructor annotated with @" + Initializer.class.getName());
-            }
-
-
-            // prepare arguments
-            Object[] invocationArgs = new Object[candidateConstructor.getParameterCount()];
-            int i = 0;
-            for (Parameter parameter : candidateConstructor.getParameters()) {
-                // class file contains parameter names.
-                String parameterName = parameter.getName();
-                Class<?> parameterType = parameter.getType();
-
-                Object argument = arguments.get(parameterName);
-                if (argument != null && ClassUtils.isAssignableFrom(parameterType, argument.getClass()) == false)
-                    throw new ObjectsException("Illegal argument type [" + argument.getClass()
-                            + "] for parameter [" + parameterName 
-                            + "] of constrcutor [" + candidateConstructor + "]");
-
-                invocationArgs[i++] = argument;
-            }
-
-            // instantiate and class
-            try {
-                return doInstantiateObject(clazz, candidateConstructor, invocationArgs);
-            } catch (Exception e) {
-                throw new ObjectsException("Could not instantiate class [" + clazz.getName() + "]", e);
-            }
-        }
-
 
         /**
          * {@inheritDoc}
@@ -384,7 +415,6 @@ public interface ObjectFactory extends Closeable {
         public <T> List<T> createObjectsImplementing(Class<T> baseClass, boolean throwException,
                 Object... arguments) throws ObjectsException {
             Assert.notNull(baseClass, "'baseClass' must not be null.'");
-            Map<String, Object> args = CollectionUtils.of(String.class, arguments);
 
             List<String> classNames = classScanner.getClassNamesImplementing(baseClass.getName());
 
@@ -395,9 +425,9 @@ public interface ObjectFactory extends Closeable {
                     continue;
 
                 try {
-                    objects.add(args.size() == 0
+                    objects.add(arguments.length == 0
                             ? doCreateObject(canidateType)
-                            : createObjectInternal(canidateType, args)
+                            : createObject(canidateType, arguments)
                     );
                 } catch (ObjectsException.SkippedObjectCreationException skipped) {
                     /* do nothing */
@@ -526,14 +556,14 @@ public interface ObjectFactory extends Closeable {
             } catch (Throwable t) {
                 Throwables.throwIfRequired(t);
 
-                throw new ObjectsException(t);
+                throw new ObjectsException("Could not instantiate class '" + clazz.getName() + "'.", t);
             }
 
             if (LOGGER.isWarnEnabled())
                 LOGGER.warn("Could not instantiate '{}' type with below constructors,\n"
                         + "  {}.\n", clazz, Arrays.asList(constructors));
 
-            throw new IllegalArgumentException("Cannot instantiate class [" + clazz + "] with required constructor");
+            throw new ObjectsException("Could not instantiate class '" + clazz.getName() + "'.");
         }
 
         private <T> T initializeObject(Class<T> clazz, T object) throws Exception {

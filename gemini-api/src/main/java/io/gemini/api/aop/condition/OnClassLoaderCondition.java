@@ -19,6 +19,7 @@
 package io.gemini.api.aop.condition;
 
 import io.gemini.api.aop.MatchingContext;
+import io.gemini.api.aop.annotation.ConditionalOnClassLoader;
 import net.bytebuddy.matcher.ElementMatcher;
 
 /**
@@ -45,6 +46,13 @@ public class OnClassLoaderCondition implements ElementMatcher<MatchingContext> {
         this.isBootstrapClassLoader = isBootstrapClassLoader;
         this.isExtClassLoader = isExtClassLoader;
         this.isAppClassLoader = isAppClassLoader;
+    }
+
+    public OnClassLoaderCondition(ConditionalOnClassLoader conditionalOnClassLoader) {
+        this(conditionalOnClassLoader.classLoaderExpression(), 
+                conditionalOnClassLoader.isBootstrapClassLoader(), 
+                conditionalOnClassLoader.isExtClassLoader(), 
+                conditionalOnClassLoader.isAppClassLoader() );
     }
 
     /**

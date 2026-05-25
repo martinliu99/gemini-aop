@@ -240,7 +240,7 @@ interface TypePools {
                 return new DelegatedResolution(
                         name,
                         resolutionSupplier,
-                        new DelegatedTypeDescription.TyepResolutionDetector(name, resolutionSupplier)
+                        new DelegatedTypeDescription.TypeResolutionDetector(name, resolutionSupplier)
                 );
             } else {
                 Supplier<Resolution> resolutionSupplier = new Supplier<Resolution>() {
@@ -261,7 +261,7 @@ interface TypePools {
                 return new DelegatedResolution(
                         name, 
                         resolutionSupplier,
-                        new DelegatedTypeDescription.TyepResolutionDetector(name, resolutionSupplier)
+                        new DelegatedTypeDescription.TypeResolutionDetector(name, resolutionSupplier)
                 );
             }
         }
@@ -385,12 +385,12 @@ interface TypePools {
          * Extends {@link DelegatedTypeDescription} to implement {@link TypeResolutionInspector},
          * recording whether superclass or interface information was accessed during matching.
          */
-        static class TyepResolutionDetector extends DelegatedTypeDescription implements TypeResolutionInspector {
+        static class TypeResolutionDetector extends DelegatedTypeDescription implements TypeResolutionInspector {
 
             private ResolutionLevel resolutionLevel = ResolutionLevel.NO_RESOLUTION;
 
 
-            protected TyepResolutionDetector(String name, Supplier<Resolution> delegateSupplier) {
+            protected TypeResolutionDetector(String name, Supplier<Resolution> delegateSupplier) {
                 super(name, delegateSupplier);
             }
 

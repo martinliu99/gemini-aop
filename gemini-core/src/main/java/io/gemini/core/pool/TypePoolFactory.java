@@ -18,7 +18,7 @@ package io.gemini.core.pool;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Supplier;
 
-import io.gemini.api.classloader.BaseClassLoader;
+import io.gemini.api.classloader.AopClassLoader;
 import io.gemini.core.concurrent.ConcurrentReferenceHashMap;
 import io.gemini.core.pool.TypePools.DelegatedTypeDescription;
 import io.gemini.core.util.ClassLoaderUtils;
@@ -246,7 +246,7 @@ public interface TypePoolFactory {
 
         private TypePool createTypePool(ClassLoader classLoader, JavaModule javaModule,
                 CacheProvider cacheProvider, ClassFileLocator classFileLocator) {
-            if (classLoader instanceof BaseClassLoader)
+            if (classLoader instanceof AopClassLoader)
                 // reuse loaded Aop framework classes for better performance
                 return TypePool.ClassLoading.of(classLoader);
             else
@@ -343,7 +343,7 @@ public interface TypePoolFactory {
                 return new TypePools.DelegatedResolution(
                         typeName, 
                         resolutionSupplier,
-                        new DelegatedTypeDescription.TyepResolutionDetector(typeName, resolutionSupplier)
+                        new DelegatedTypeDescription.TypeResolutionDetector(typeName, resolutionSupplier)
                 );
             }
         }

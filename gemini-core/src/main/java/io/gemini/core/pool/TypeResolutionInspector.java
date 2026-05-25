@@ -21,7 +21,7 @@ package io.gemini.core.pool;
 /**
  * Tracks the level of type resolution performed during pointcut matching.
  * <p>
- * Used by {@link io.gemini.core.pool.TypePools.DelegatedTypeDescription.TyepResolutionDetector}
+ * Used by {@link io.gemini.core.pool.TypePools.DelegatedTypeDescription.TypeResolutionDetector}
  * to record whether a type description required full resolution (loading superclass/interface
  * information) during advisor fast-match or method-match phases.
  * </p>

@@ -26,7 +26,7 @@ import java.lang.annotation.Target;
  * Declares an AspectJ-style pointcut expression for an advice class.
  * <p>
  * When placed on an {@link io.gemini.api.aop.Advice} implementation, the Gemini AOP framework 
- * will parse the {@link #pointcutExpression()} using AspectJ syntax to determine 
+ * will parse the {@link #value()} using AspectJ syntax to determine 
  * which joinpoints the advice applies to.
  * </p>
  *

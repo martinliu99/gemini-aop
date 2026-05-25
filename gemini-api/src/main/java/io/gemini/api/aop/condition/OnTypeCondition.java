@@ -19,6 +19,7 @@
 package io.gemini.api.aop.condition;
 
 import io.gemini.api.aop.MatchingContext;
+import io.gemini.api.aop.annotation.ConditionalOnType;
 import net.bytebuddy.matcher.ElementMatcher;
 
 /**
@@ -34,7 +35,11 @@ public class OnTypeCondition implements ElementMatcher<MatchingContext> {
 
 
     public OnTypeCondition(String value) {
-        this.typeExpression = value;
+        this.typeExpression = value == null ? "" : value.trim();
+    }
+
+    public OnTypeCondition(ConditionalOnType conditionalOnType) {
+        this(conditionalOnType.value());
     }
 
     /**

@@ -96,11 +96,7 @@ public interface PointcutSpecParser {
 
         public Compound(FactoryContext factoryContext) {
             List<? extends PointcutSpecParser> pointcutSpecParsers = factoryContext.getObjectFactory()
-                    .createObjectsImplementing(
-                            PointcutSpecParser.class, 
-                            false, 
-                            "factoryContext", factoryContext
-                    );
+                    .createObjectsImplementing(PointcutSpecParser.class, false);
             this.pointcutSpecParsers = pointcutSpecParsers == null 
                     ? Collections.emptyList() : pointcutSpecParsers;
 
@@ -279,7 +275,6 @@ public interface PointcutSpecParser {
                 return null;
 
             return new PojoPointcutSpec.Default(
-                    adviceSpec, 
                     isBreakCircularity(adviceType.getDeclaredAnnotations()), 
                     pointcutClass
             );
@@ -328,7 +323,6 @@ public interface PointcutSpecParser {
                 return null;
 
             return new ExprPointcutSpec.Default(
-                    adviceSpec, 
                     isBreakCircularity(adviceType.getDeclaredAnnotations()), 
                     pointcutExpression 
             );
@@ -352,11 +346,7 @@ public interface PointcutSpecParser {
             boolean breakCircularity = configView.getAsBoolean(
                     configKeyPrefix + "breakCircularity", false);
 
-            return new ExprPointcutSpec.Default(
-                    adviceSpec, 
-                    breakCircularity, 
-                    pointcutExpression 
-            );
+            return new ExprPointcutSpec.Default(breakCircularity, pointcutExpression);
         }
     }
 
@@ -395,7 +385,6 @@ public interface PointcutSpecParser {
 
             AnnotationList adviceMethodAnnotations = adviceSpec.getAdviceMethod().getDeclaredAnnotations();
             return new AspectJPointcutSpec.Default(
-                    adviceSpec, 
                     isBreakCircularity(decalaringTypeAnnotations) || isBreakCircularity(adviceMethodAnnotations), 
                     pointcutExpression
             );
@@ -417,11 +406,7 @@ public interface PointcutSpecParser {
 
             boolean breakCircularity = configView.getAsBoolean(configKeyPrefix + "breakCircularity", false);
 
-            return new ExprPointcutSpec.Default(
-                    adviceSpec, 
-                    breakCircularity, 
-                    pointcutExpression 
-            );
+            return new ExprPointcutSpec.Default(breakCircularity, pointcutExpression);
         }
     }
 }
