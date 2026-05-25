@@ -323,6 +323,9 @@
 <!--                        <release>${maven.compiler.release}</release>-->
                         <encoding>${project.build.sourceEncoding}</encoding>
 <!--                        <proc>none</proc>-->
+                        <compilerArgs>
+                            <arg>-parameters</arg>
+                        </compilerArgs>
                     </configuration>
                 </plugin>
 
@@ -695,6 +698,10 @@
             <id>error-prone-jdk8</id>
             <activation>
                 <jdk>1.8</jdk>
+                <property>
+                    <name>error-prone</name>
+                    <value>true</value>
+                </property>
             </activation>
             <build>
                 <plugins>
@@ -749,6 +756,10 @@
             <id>error-prone-jdk17</id>
             <activation>
                 <jdk>[17, )</jdk>
+                <property>
+                    <name>error-prone</name>
+                    <value>true</value>
+                </property>
             </activation>
             <properties>
                 <maven.compiler.release>${java.version}</maven.compiler.release>

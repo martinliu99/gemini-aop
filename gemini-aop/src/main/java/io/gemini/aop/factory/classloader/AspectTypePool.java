@@ -22,10 +22,6 @@ import net.bytebuddy.pool.TypePool;
 
 /**
  * A ByteBuddy {@link TypePool} scoped to an aspect application.
- * <p>
- * Resolves type descriptions by first consulting the aspect class loader's own classpath,
- * then falling back to the target class loader's type pool. 
- * </p>
  *
  * @author   martin.liu
  */
@@ -63,6 +59,12 @@ public class AspectTypePool extends TypePool.Default {
     }
 
 
+    /**
+     * Resolves type descriptions by first consulting the target class loader's type pool,
+     * then falling back to the aspect class loader's own classpath. 
+     *
+     * @author   martin.liu
+     */
     public static class PerTargetClassLoader extends AspectTypePool {
 
         public PerTargetClassLoader(AspectClassLoader.PerTargetClassLoader aspectClassLoader, TypePoolFactory typePoolFactory) {
@@ -87,32 +89,18 @@ public class AspectTypePool extends TypePool.Default {
             if (resolution != null && resolution.isResolved())
                 return resolution;
 
-            // 2.look up via AspectClassLoader
-//            try {
-//                resolution = super.describe(name);
-//                if (resolution != null && resolution.isResolved())
-//                    return resolution;
-//            } catch (Exception ignored) { /* do nothing */ }
-//
-//
-//            // 3.look up cached target types including runtime generated via target type pool
-//            ClassLoader targetCL = getAspectClassLoader().getTargetClassLoader();
-//            TypePool typePool = this.getTypePoolFactory().createTypePool(targetCL, null);
-//            return typePool.describe(name);
-
-            
-            // 2.look up via AspectClassLoader
+            // 2.look up target types firstly, which most time is currently loading type, including runtime generated
             try {
-                // 3.look up cached target types including runtime generated via target type pool
                 ClassLoader targetCL = getAspectClassLoader().getTargetClassLoader();
                 TypePool typePool = this.getTypePoolFactory().createTypePool(targetCL, null);
+
                 resolution = typePool.describe(name);
                 if (resolution != null && resolution.isResolved())
                     return resolution;
 
             } catch (Exception ignored) { /* do nothing */ }
 
-
+            // 3.look up via AspectClassLoader
             return super.describe(name);
         }
     }

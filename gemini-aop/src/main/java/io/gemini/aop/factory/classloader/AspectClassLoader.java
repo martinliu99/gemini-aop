@@ -102,10 +102,12 @@ public class AspectClassLoader extends BaseClassLoader {
 
 
     /**
-     * This class loader loads classes and resources following below priority,
+     * {@link AspectClassLoader.PerTargetClassLoader} loads both aspect and target classes and resources.
+     * <p>
+     * It loads classes and resources following below priority,
      * <ol>
-     *   <li>aspect-side and target relevant: load from current class loader first (child-first), </li>
-     *   <li>aspect-side and target irrelevant: load from parent class loader, </li>
+     *   <li>aspect-side and target relevant: load from current class loader first (child-first) for class name matched by {@code aspectTypeMatcher}, </li>
+     *   <li>aspect-side and target irrelevant: load from parent class loader with aspect application's own classpath , </li>
      *   <li>target-side: </li>load from target class loader </li>
      * </ol>
      * By default, aspect-side classes are loaded first; target-side classes are loaded as a fallback.

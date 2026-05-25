@@ -86,11 +86,7 @@ public interface AdvisorSpecScanner {
 
         public Compound(FactoryContext factoryContext) {
             this.advisorSpecScanners = factoryContext.getObjectFactory()
-                    .createObjectsImplementing(
-                            AdvisorSpecScanner.class, 
-                            false, 
-                            "factoryContext", factoryContext
-                    );
+                    .createObjectsImplementing(AdvisorSpecScanner.class, false, factoryContext);
         }
 
         /**
@@ -299,7 +295,7 @@ public interface AdvisorSpecScanner {
         protected PointcutAdvisorSpec parsePointcutAdvisorSpec(FactoryContext factoryContext, ClassInfo classInfo) {
             try {
                 String adviceClassName = classInfo.getName();
-                TypeDescription decalringType = factoryContext.getTypePool().describeAspectType(adviceClassName).resolve();
+                TypeDescription decalringType = factoryContext.getTypePool().describe(adviceClassName).resolve();
                 if (decalringType == null) 
                     return null;
 
@@ -473,12 +469,12 @@ public interface AdvisorSpecScanner {
         }
 
         private Collection<PointcutAdvisorSpec> parsePointcutAdvisorSpec(FactoryContext factoryContext, String adviceClassName) {
-            TypeDescription aspectType = factoryContext.getTypePool().describeAspectType(adviceClassName).resolve();
+            TypeDescription aspectType = factoryContext.getTypePool().describe(adviceClassName).resolve();
             if (aspectType == null) 
                 return new ArrayList<>();
 
             try {
-                TypeDescription adviceType = factoryContext.getTypePool().describeAspectType(adviceClassName).resolve();
+                TypeDescription adviceType = factoryContext.getTypePool().describe(adviceClassName).resolve();
                 if (adviceType == null) 
                     return null;
 
