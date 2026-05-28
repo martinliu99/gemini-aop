@@ -38,6 +38,7 @@ import io.github.classgraph.ClassGraph.ClasspathElementFilter;
 import io.github.classgraph.ClassInfo;
 import io.github.classgraph.ClassInfoList;
 import io.github.classgraph.ClassInfoList.ClassInfoFilter;
+import io.github.classgraph.PackageInfoList;
 import io.github.classgraph.ScanResult;
 import nonapi.io.github.classgraph.scanspec.AcceptReject;
 import nonapi.io.github.classgraph.utils.JarUtils;
@@ -89,6 +90,22 @@ public interface ClassScanner {
      */
     ClassInfoList getClassesWithAnnotation(String annotationName);
 
+    /**
+     * Returns all package names annotated with the given annotation.
+     * 
+     * @param annotationName the fully-qualified annotation class name
+     * @return list of fully-qualified package names
+     */
+    List<String> getPackageNamesWithAnnotation(String annotationName);
+
+    /**
+     * Returns all packages annotated with the given annotation.
+     * 
+     * @param annotationName the fully-qualified annotation class name
+     * @return the matching package info list
+     */
+    PackageInfoList getPackagesWithAnnotation(String annotationName);
+
 
     /**
      * Default {@link ClassScanner} implementation backed by ClassGraph.
@@ -129,6 +146,7 @@ public interface ClassScanner {
         private final List<URL> filteredClasspathElementUrls;
 
         private final ClassInfoList classInfoList;   // cache found class info globally.
+        private final PackageInfoList packageInfoList;
 
 
         protected Default(boolean enableVerbose, DiagnosticLevel diagnosticLevel,
@@ -193,13 +211,14 @@ public interface ClassScanner {
                         // remove {@code NoScanning} types
                         .filter(NoScanningClassInfoFilter.INSTANCE)
                         ;
+                this.packageInfoList = result.getPackageInfo();
             } finally {
                 if (result != null) {
-                    try {
-                        result.close();
-                    } catch (Exception ignored) {
-                        /* ignore */
-                    }
+//                    try {
+//                        result.close();
+//                    } catch (Exception ignored) {
+//                        /* ignore */
+//                    }
                 }
 
                 if (LOGGER.isInfoEnabled()) {
@@ -266,6 +285,8 @@ public interface ClassScanner {
 
             Default defaultSanner = (Default) classScanner;
             this.classInfoList = defaultSanner.classInfoList;
+            this.packageInfoList = defaultSanner.packageInfoList;
+
             this.diagnosticLevel = defaultSanner.diagnosticLevel;
         }
 
@@ -327,6 +348,25 @@ public interface ClassScanner {
                     .filter(NoScanningClassInfoFilter.INSTANCE)
                     // filter out class via ClassPathElement
                     .filter(new DefaultClassInfoFilter(filteredClasspathElementUrls));
+        }
+
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public List<String> getPackageNamesWithAnnotation(String annotationName) {
+            return getPackagesWithAnnotation(annotationName).getNames();
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public PackageInfoList getPackagesWithAnnotation(String annotationName) {
+            return packageInfoList.filter( pkg -> 
+                pkg.hasAnnotation(annotationName)
+            );
         }
 
 

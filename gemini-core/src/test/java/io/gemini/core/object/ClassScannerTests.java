@@ -17,11 +17,14 @@ package io.gemini.core.object;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.File;
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
-import java.net.URLClassLoader;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.nio.file.Paths;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -39,17 +42,26 @@ public class ClassScannerTests {
     private ClassScanner classScanner;
 
     @BeforeEach
-    public void setup() {
+    public void setup() throws MalformedURLException {
         ClassLoader classLoader = this.getClass().getClassLoader();
         classScanner = new ClassScanner.Builder()
                 .scannedClassLoaders(classLoader)
                 .acceptPackages(ObjectFactoryTests.class.getPackage().getName())
                 .acceptJarPatterns("*.jar", "classes")
-                .filteredClasspathElementUrls( ( (URLClassLoader)classLoader ).getURLs() )
+                .filteredClasspathElementUrls( getClassPathUrls() )
                 .build();
     }
 
-    
+    public static URL[] getClassPathUrls() throws MalformedURLException {
+        String classpath = System.getProperty("java.class.path");
+        String[] entries = classpath.split(File.pathSeparator);
+        URL[] urls = new URL[entries.length];
+        for (int i = 0; i < entries.length; i++) {
+            urls[i] = Paths.get(entries[i]).toAbsolutePath().toUri().toURL();
+        }
+        return urls;
+    }
+
     @Test
     public void test_getClassesImplementing() {
         class LocalClass implements Marker {};
@@ -71,6 +83,7 @@ public class ClassScannerTests {
                     .filter(new ClassScanner.InstantiableClassInfoFilter())
                     .getNames();
             assertThat(implementors).containsExactlyInAnyOrder(
+                    InnerClass.class.getName(),
                     NestedClass.class.getName(),
                     PrivateNestedClass.class.getName()
             );
@@ -97,9 +110,16 @@ public class ClassScannerTests {
     }
 
 
+    @Test
+    public void test_getPackageNameWithAnnotation() {
+        List<String> anotatedClasses = classScanner.getPackageNamesWithAnnotation(AtMarker.class.getName());
+        assertThat(anotatedClasses).contains("io.gemini.core.object");
+    }
+
+
     public interface Marker {}
 
-    @Target({ ElementType.TYPE_USE, ElementType.TYPE })
+    @Target({ ElementType.TYPE_USE, ElementType.TYPE, ElementType.PACKAGE })
     @Retention(RetentionPolicy.RUNTIME)
     public static @interface AtMarker {}
 
