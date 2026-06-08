@@ -20,7 +20,6 @@ package io.gemini.aspectj.weaver;
 
 import java.io.File;
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -33,12 +32,12 @@ import org.aspectj.weaver.ISourceContext;
 import org.aspectj.weaver.ResolvedType;
 import org.aspectj.weaver.UnresolvedType;
 import org.aspectj.weaver.patterns.Bindings;
-import org.aspectj.weaver.patterns.ExactTypePattern;
 import org.aspectj.weaver.patterns.FormalBinding;
 import org.aspectj.weaver.patterns.IScope;
 import org.aspectj.weaver.patterns.ISignaturePattern;
 import org.aspectj.weaver.patterns.ParserException;
 import org.aspectj.weaver.patterns.Pointcut;
+import org.aspectj.weaver.patterns.SignaturePattern;
 import org.aspectj.weaver.patterns.SimpleScope;
 import org.aspectj.weaver.patterns.TypePattern;
 import org.aspectj.weaver.tools.PointcutPrimitive;
@@ -55,10 +54,8 @@ import io.gemini.aspectj.weaver.world.ElementExpr.TypeNameExpr;
 import io.gemini.aspectj.weaver.world.PointcutParser;
 import io.gemini.core.util.Assert;
 import io.gemini.core.util.MethodUtils;
-import io.gemini.core.util.Pair;
 import io.gemini.core.util.StringUtils;
 import net.bytebuddy.description.method.MethodDescription;
-import net.bytebuddy.description.type.TypeDefinition;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 
@@ -212,9 +209,7 @@ public enum ExprParser {
      */
     public Pointcut parsePointcutExpr(TypeWorld typeWorld, String pointcutExpression) 
             throws ExprParseException, ExprLintException, ExprUnknownException {
-        pointcutExpression = validateExpression(pointcutExpression);
-
-        return new PointcutParser(typeWorld).parsePointcut(pointcutExpression);
+        return parsePointcutExpr(typeWorld, null, pointcutExpression, null, null);
     }
 
     /**
@@ -227,9 +222,7 @@ public enum ExprParser {
      */
     public Pointcut parsePointcutExpr(TypeWorld typeWorld, Set<PointcutPrimitive> supportedPointcutKinds, String pointcutExpression) 
             throws ExprParseException, ExprLintException, ExprUnknownException {
-        pointcutExpression = validateExpression(pointcutExpression);
-
-        return new PointcutParser(typeWorld, supportedPointcutKinds).parsePointcut(pointcutExpression);
+        return parsePointcutExpr(typeWorld, supportedPointcutKinds, pointcutExpression, null, null);
     }
 
     /**
@@ -237,22 +230,15 @@ public enum ExprParser {
      *
      * @param typeWorld                  the type world for resolving types
      * @param pointcutExpression         the AspectJ pointcut expression string
-     * @param pointcutDeclarationScope   the declaring type scope (used for reference pointcuts)
+     * @param pointcutDeclaringTypeName   the declaring type scope (used for reference pointcuts)
      * @param pointcutParameters         map of parameter name to type definition
      * @return the resolved and concretized {@link Pointcut}
      */
-    public Pointcut parsePointcutExpr(TypeWorld typeWorld, 
-            String pointcutExpression, TypeDescription pointcutDeclarationScope, 
-            Map<String, ? extends TypeDefinition> pointcutParameters) 
-            throws ExprParseException, ExprLintException, ExprUnknownException {
-        pointcutExpression = validateExpression(pointcutExpression);
-        pointcutDeclarationScope = pointcutDeclarationScope == null
-                ? TypeDescription.ForLoadedType.of(Object.class) : pointcutDeclarationScope;
-
-        ResolvedType pointcutDeclarationScopeType = typeWorld.resolve(pointcutDeclarationScope);
-
-        return new PointcutParser(typeWorld).parsePointcut(
-                pointcutExpression, pointcutDeclarationScopeType, pointcutParameters);
+    public Pointcut parsePointcutExpr(TypeWorld typeWorld, String pointcutExpression, 
+            String pointcutDeclaringTypeName, Map<String, String> pointcutParameters) 
+                    throws ExprParseException, ExprLintException, ExprUnknownException {
+        return parsePointcutExpr(typeWorld, null, pointcutExpression, 
+                pointcutDeclaringTypeName, pointcutParameters);
     }
 
     /**
@@ -262,25 +248,25 @@ public enum ExprParser {
      * @param typeWorld                the type world for resolving types
      * @param supportedPointcutKinds   the set of allowed pointcut primitives
      * @param pointcutExpression       the AspectJ pointcut expression string
-     * @param pointcutDeclarationType  the declaring type scope (used for reference pointcuts)
-     * @param pointcutParameters       map of parameter name to type definition
+     * @param pointcutDeclaringTypeName  the declaring type scope (used for reference pointcuts)
+     * @param pointcutParameters       map of parameter name to type name
      * @return the resolved and concretized {@link Pointcut}
      * @throws ExprParseException   if the expression has a syntax error
      * @throws ExprLintException    if the expression has a lint warning
      * @throws ExprUnknownException if an unexpected error occurs
      */
-    public Pointcut parsePointcutExpr(TypeWorld typeWorld, Set<PointcutPrimitive> supportedPointcutKinds, 
-            String pointcutExpression, TypeDescription pointcutDeclarationType, 
-            Map<String, ? extends TypeDefinition> pointcutParameters) 
+    public Pointcut parsePointcutExpr(TypeWorld typeWorld, Set<PointcutPrimitive> supportedPointcutKinds, String pointcutExpression, 
+            String pointcutDeclaringTypeName, Map<String, String> pointcutParameters) 
             throws ExprParseException, ExprLintException, ExprUnknownException {
         pointcutExpression = validateExpression(pointcutExpression);
-        pointcutDeclarationType = pointcutDeclarationType == null
-                ? TypeDescription.ForLoadedType.of(Object.class) : pointcutDeclarationType;
 
-        ResolvedType pointcutDeclarationScopeType = typeWorld.resolve(pointcutDeclarationType);
+        pointcutDeclaringTypeName = pointcutDeclaringTypeName == null
+                ? Object.class.getName() : pointcutDeclaringTypeName;
+
+        ResolvedType pointcutDeclaringType = typeWorld.resolve(pointcutDeclaringTypeName);
 
         return new PointcutParser(typeWorld, supportedPointcutKinds).parsePointcut(
-                pointcutExpression, pointcutDeclarationScopeType, pointcutParameters);
+                pointcutExpression, pointcutDeclaringType, pointcutParameters);
     }
 
 
@@ -385,32 +371,38 @@ public enum ExprParser {
      * @param methodExpression the AspectJ method signature expression (must include declaring type)
      * @return the matching {@link MethodDescription}, or {@code null} if not found
      */
-    public Pair<Integer, MethodDescription> findMethod(TypeWorld typeWorld, String methodExpression) 
+    public MethodDescription findMethod(TypeWorld typeWorld, String methodExpression) 
             throws ExprParseException, ExprLintException, ExprUnknownException {
         try {
             methodExpression = replaceBooleanOperators(methodExpression);
-            ISignaturePattern signaturePattern = new PatternParserV2(methodExpression).parseMethodOrConstructorSignaturePattern();
+            SignaturePattern signaturePattern = new PatternParserV2(methodExpression).parseMethodOrConstructorSignaturePattern();
 
              try {
+                 typeWorld.getWorld().getLint().invalidAbsoluteTypeName.setSuppressed(true);
                  IScope resolutionScope = buildResolutionScope(typeWorld, null, Collections.emptyMap());
                  Bindings bindingTable = new Bindings(resolutionScope.getFormalCount());
                  signaturePattern = signaturePattern.resolveBindings(resolutionScope, bindingTable);
              } catch (Exception e) {
-                 // TDOO
+//                 e.printStackTrace();
+                 // ignore exception?
              }
 
-            List<ExactTypePattern> exactTypePatterns = signaturePattern.getExactDeclaringTypes();
-            Assert.isTrue(exactTypePatterns != null && exactTypePatterns.size() == 1, 
-                    "Only one signature should be defined in " + methodExpression);
+//            List<ExactTypePattern> exactTypePatterns = signaturePattern.getExactDeclaringTypes();
+//            Assert.isTrue(exactTypePatterns != null && exactTypePatterns.size() == 1, 
+//                    "Only one signature should be defined in " + methodExpression);
 
-            ResolvedType resolvedType = exactTypePatterns.get(0).getResolvedExactType(typeWorld.getWorld());
+            String declaringTypeName = signaturePattern.getDeclaringType().toString();
+            ResolvedType resolvedType = typeWorld.getWorld().resolve(declaringTypeName);
             TypeDescription typeDescription = typeWorld.describeType(resolvedType.getName());
 
-            int index = -1;
             for (MethodDescription methodDescription : MethodUtils.getAllMethodDescriptions(typeDescription)) {
-                index++;
+                try {
                 if (signaturePattern.matches(typeWorld.resolve(methodDescription), typeWorld.getWorld(), false))
-                    return new Pair<>(index, methodDescription);
+                    return methodDescription;
+                } catch (Exception e) {
+//                    e.printStackTrace();
+                 // ignore exception?
+                }
             }
             return null;
         } catch (Exception e) {
@@ -437,23 +429,23 @@ public enum ExprParser {
      * Builds an AspectJ {@link IScope} for resolving pointcut bindings.
      *
      * @param typeWorld                      the type world
-     * @param pointcutDeclarationScopeType   the declaring type scope, or {@code null} for anonymous scope
+     * @param pointcutDeclaringType          the declaring type scope, or {@code null} for anonymous scope
      * @param pointcutParameters             map of parameter name to type definition
      * @return the resolution scope
      */
-    public static IScope buildResolutionScope(TypeWorld typeWorld, 
-            ResolvedType pointcutDeclarationScopeType, Map<String, ? extends TypeDefinition> pointcutParameters) {
+    public static IScope buildResolutionScope(TypeWorld typeWorld, ResolvedType pointcutDeclaringType, Map<String, String> pointcutParameters) {
         if (pointcutParameters == null) {
             pointcutParameters = Collections.emptyMap();
         }
 
         FormalBinding[] formalBindings = new FormalBinding[pointcutParameters.size()];
         int i = 0;
-        for (Entry<String, ? extends TypeDefinition> entry : pointcutParameters.entrySet()) {
-            formalBindings[i] = new FormalBinding.ImplicitFormalBinding(toUnresolvedType(entry.getValue()), entry.getKey(), i++);
+        for (Entry<String, String> entry : pointcutParameters.entrySet()) {
+            formalBindings[i] = new FormalBinding.ImplicitFormalBinding(
+                    UnresolvedType.forName(entry.getValue()), entry.getKey(), i++);
         }
 
-        if (pointcutDeclarationScopeType == null)
+        if (pointcutDeclaringType == null)
             return new SimpleScope(typeWorld.getWorld(), formalBindings);
 
         ISourceContext sourceContext = new ISourceContext() {
@@ -477,16 +469,7 @@ public enum ExprParser {
             public void tidy() {
             }
         };
-        return new BindingScope(pointcutDeclarationScopeType, sourceContext, formalBindings);
-    }
-
-
-    private static UnresolvedType toUnresolvedType(TypeDefinition typeDefinition) {
-        if (typeDefinition.isArray()) {
-            return UnresolvedType.forSignature(typeDefinition.getTypeName().replace('.', '/'));
-        } else {
-            return UnresolvedType.forName(typeDefinition.getTypeName());
-        }
+        return new BindingScope(pointcutDeclaringType, sourceContext, formalBindings);
     }
 
     /**

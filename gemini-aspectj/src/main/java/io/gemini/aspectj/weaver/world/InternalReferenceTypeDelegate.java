@@ -31,6 +31,7 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.weaver.AjAttribute.WeaverVersionInfo;
 import org.aspectj.weaver.AnnotationAJ;
 import org.aspectj.weaver.AnnotationTargetKind;
+import org.aspectj.weaver.ConcreteTypeMunger;
 import org.aspectj.weaver.ISourceContext;
 import org.aspectj.weaver.ReferenceType;
 import org.aspectj.weaver.ReferenceTypeDelegate;
@@ -42,6 +43,7 @@ import org.aspectj.weaver.TypeVariable;
 import org.aspectj.weaver.TypeVariableReferenceType;
 import org.aspectj.weaver.UnresolvedType;
 import org.aspectj.weaver.WeaverStateInfo;
+import org.aspectj.weaver.patterns.Declare;
 import org.aspectj.weaver.patterns.PerClause;
 import org.aspectj.weaver.patterns.Pointcut;
 import org.jspecify.annotations.Nullable;
@@ -61,7 +63,6 @@ import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.method.MethodList;
 import net.bytebuddy.description.method.ParameterDescription;
 import net.bytebuddy.description.method.ParameterList;
-import net.bytebuddy.description.type.TypeDefinition;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.description.type.TypeList;
 import net.bytebuddy.matcher.ElementMatchers;
@@ -73,7 +74,7 @@ import net.bytebuddy.matcher.ElementMatchers;
  * Bridges ByteBuddy's type model to AspectJ's type resolution system, providing
  * type metadata (annotations, interfaces, superclass, fields, methods, pointcuts)
  * without requiring actual class loading.
- * The inner {@link TyepResolutionDetector} subclass additionally tracks which
+ * The inner {@link TypeResolutionDetector} subclass additionally tracks which
  * type properties (superclass/interfaces) were accessed during pointcut matching.
  * </p>
  *
@@ -483,7 +484,7 @@ class InternalReferenceTypeDelegate implements ReferenceTypeDelegate {
         }
 
         // phase 2, now go back round and resolve in-place all of the pointcuts
-        List<Map<String, ? extends TypeDefinition>> formalParameterList = new ArrayList<>(pointcutMethods.size());
+        List<Map<String, String>> formalParameterList = new ArrayList<>(pointcutMethods.size());
         for (int i = 0; i < pointcutDefs.size(); i++) {
             ResolvedPointcutDefinition pointcutDef = pointcutDefs.get(i);
             if (pointcutDef == null)
@@ -502,10 +503,10 @@ class InternalReferenceTypeDelegate implements ReferenceTypeDelegate {
             }
 
             // parse Pointcut expression
-            Map<String, TypeDefinition> formalParameters = new LinkedHashMap<>(parameterTypes.length);
+            Map<String, String> formalParameters = new LinkedHashMap<>(parameterTypes.length);
             formalParameterList.add(formalParameters);
             for (int j = 0; j < parameterNames.length; j++) {
-                formalParameters.put(parameterNames[j], parameterTypes[j]);
+                formalParameters.put(parameterNames[j], parameterTypes[j].getTypeName());
             }
 
             String pointcutExpression = pointcutMethod.getPointcutExpression();
@@ -652,30 +653,27 @@ class InternalReferenceTypeDelegate implements ReferenceTypeDelegate {
      * {@inheritDoc}
      */
     @Override
-    @SuppressWarnings({ "rawtypes", "unchecked" })
-    public Collection getDeclares() {
+    public Collection<Declare> getDeclares() {
         // no declares
-        return Collections.EMPTY_SET;
+        return Collections.emptySet();
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    @SuppressWarnings({ "rawtypes", "unchecked" })
-    public Collection getTypeMungers() {
+    public Collection<ConcreteTypeMunger> getTypeMungers() {
         // no type mungers
-        return Collections.EMPTY_SET;
+        return Collections.emptySet();
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    @SuppressWarnings({ "rawtypes", "unchecked" })
-    public Collection getPrivilegedAccesses() {
+    public Collection<ResolvedMember> getPrivilegedAccesses() {
         // no aspect members..., not used for weaving
-        return Collections.EMPTY_SET;
+        return Collections.emptySet();
     }
 
     /**
@@ -924,17 +922,17 @@ class InternalReferenceTypeDelegate implements ReferenceTypeDelegate {
      * flag whenever superclass or interface metadata is accessed during pointcut matching.
      * This allows callers to detect which types required deep resolution.
      */
-    static class TyepResolutionDetector extends InternalReferenceTypeDelegate {
+    static class TypeResolutionDetector extends InternalReferenceTypeDelegate {
 
         /**
-         * Creates a {@code TyepResolutionDetector} delegate that additionally marks the
+         * Creates a {@code TypeResolutionDetector} delegate that additionally marks the
          * type's resolution level when superclass or interface information is accessed.
          *
          * @param typeWorld       the ByteBuddy world
          * @param typeDescription the ByteBuddy type description
          * @param resolvedTypeX   the AspectJ reference type this delegate belongs to
          */
-        public TyepResolutionDetector(BytebuddyWorld typeWorld, TypeDescription typeDescription, ReferenceType resolvedTypeX) {
+        public TypeResolutionDetector(BytebuddyWorld typeWorld, TypeDescription typeDescription, ReferenceType resolvedTypeX) {
             super(typeWorld, typeDescription, resolvedTypeX);
         }
 

@@ -13,9 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/**
- * 
- */
 package io.gemini.aspectj.weaver;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,7 +22,6 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 import io.gemini.aspectj.weaver.world.BytebuddyWorld;
-import io.gemini.core.util.Pair;
 import net.bytebuddy.agent.builder.AgentBuilder.PoolStrategy;
 import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.type.TypeDescription;
@@ -33,9 +29,6 @@ import net.bytebuddy.dynamic.ClassFileLocator;
 import net.bytebuddy.matcher.ElementMatchers;
 import net.bytebuddy.pool.TypePool;
 
-/**
- * 
- */
 public class MethodExprTests extends AbstractTests {
 
     @Test
@@ -47,9 +40,9 @@ public class MethodExprTests extends AbstractTests {
         TypeDescription type = typePool.describe(MethodExprTests.class.getName()).resolve();
 
         String methodExpression = "public java.util.List io.gemini.aspectj.weaver.MethodExprTests.replace(java.lang.String, int, java.lang.String)";
-        Pair<Integer, MethodDescription> method = ExprParser.INSTANCE.findMethod(typeWorld, methodExpression);
+        MethodDescription method = ExprParser.INSTANCE.findMethod(typeWorld, methodExpression);
         assertThat(method).isNotNull();
-        assertThat(method.getRight()).isEqualTo(
+        assertThat(method).isEqualTo(
                         type.getDeclaredMethods().filter( ElementMatchers.named("replace") ).getOnly()
         );
     }

@@ -311,16 +311,16 @@ public class BytebuddyWorld extends World implements TypeWorld {
     }
 
 
-    public static class TyepResolutionDetector extends BytebuddyWorld {
+    public static class TypeResolutionDetector extends BytebuddyWorld {
 
         /**
-         * Creates a {@code TyepResolutionDetector} world that tracks which type properties
+         * Creates a {@code TypeResolutionDetector} world that tracks which type properties
          * (superclass, interfaces) are accessed during pointcut matching.
          *
          * @param typePool          the ByteBuddy type pool
          * @param placeholderHelper optional placeholder helper; may be {@code null}
          */
-        public TyepResolutionDetector(TypePool typePool, PlaceholderHelper placeholderHelper) {
+        public TypeResolutionDetector(TypePool typePool, PlaceholderHelper placeholderHelper) {
             super(typePool, placeholderHelper);
         }
 
@@ -331,7 +331,7 @@ public class BytebuddyWorld extends World implements TypeWorld {
         @Override
         protected ReferenceTypeDelegate resolveDelegate(ReferenceType referenceType) {
             try {
-                return new InternalReferenceTypeDelegate.TyepResolutionDetector(
+                return new InternalReferenceTypeDelegate.TypeResolutionDetector(
                         this, 
                         describeType(referenceType.getName()), 
                         referenceType)

@@ -29,7 +29,7 @@ import net.bytebuddy.utility.JavaModule;
  * Factory for creating {@link TypeWorld} instances scoped to a specific class loader.
  * <p>
  * The {@link Default} implementation caches one {@link TypeWorld} per class loader.
- * The {@link Default.TyepResolutionDetector} variant wraps the world to track which
+ * The {@link Default.TypeResolutionDetector} variant wraps the world to track which
  * type properties are accessed during pointcut matching.
  * </p>
  *
@@ -100,16 +100,16 @@ public interface TypeWorldFactory {
          * track which type properties (superclass, interfaces) are accessed during pointcut
          * matching, enabling resolution-level inspection.
          */
-        public static class TyepResolutionDetector extends Default  {
+        public static class TypeResolutionDetector extends Default  {
 
             /**
-             * Creates a {@code TyepResolutionDetector} factory backed by the given {@link TypePoolFactory}.
+             * Creates a {@code TypeResolutionDetector} factory backed by the given {@link TypePoolFactory}.
              * The worlds it creates will track which type properties (superclass/interfaces) are
              * accessed during pointcut matching.
              *
              * @param typePoolFactory the factory used to create a {@link TypePool} per class loader
              */
-            public TyepResolutionDetector(TypePoolFactory typePoolFactory) {
+            public TypeResolutionDetector(TypePoolFactory typePoolFactory) {
                 super(typePoolFactory);
             }
 
@@ -118,7 +118,7 @@ public interface TypeWorldFactory {
              */
             @Override
             protected TypeWorld doCreateTypeWorld(TypePool typePool, PlaceholderHelper placeholderHelper) {
-                return new BytebuddyWorld.TyepResolutionDetector(typePool, placeholderHelper);
+                return new BytebuddyWorld.TypeResolutionDetector(typePool, placeholderHelper);
             }
         }
     }
