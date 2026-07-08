@@ -94,7 +94,7 @@ class CompoundAdvisorFactory implements AdvisorFactory {
                     ? new DefaultAdvisorFactory(factoryContext)
                     : aopContext.isDetectTypeResolution() == false 
                             ? new DefaultAdvisorFactory.Diagnostic(factoryContext)
-                            : new DefaultAdvisorFactory.TyepResolutionDetector(factoryContext);
+                            : new DefaultAdvisorFactory.TypeResolutionDetector(factoryContext);
 
             advisorFactoryMap.put(factoryContext, advisorFactory);
         }

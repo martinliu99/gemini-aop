@@ -24,6 +24,8 @@ import org.aspectj.lang.annotation.Pointcut;
 
 import io.gemini.aop.AopContext;
 import io.gemini.api.aop.Joinpoint.MutableJoinpoint;
+import io.gemini.api.aop.annotation.ClassLoadingOrder;
+import io.gemini.api.aop.annotation.ClassLoadingOrder.Order;
 
 
 /**
@@ -37,6 +39,7 @@ import io.gemini.api.aop.Joinpoint.MutableJoinpoint;
  * @author   martin.liu
  */
 @Aspect
+@ClassLoadingOrder(Order.PARENT_FIRST)
 public class ApplicationStartupAspect {
 
     @Resource
@@ -46,12 +49,12 @@ public class ApplicationStartupAspect {
     public void applicationStartup() {}
 
 
-    @Before("${aop.factory.applicationStartupPointcut}")
+    @Before("applicationStartup()")
     public void before(MutableJoinpoint<Void, RuntimeException> joinpoint) throws Throwable {
         aopContext.getAopMetrics();
     }
 
-    @After("applicationStartup()")
+    @After("${aop.factory.applicationStartupPointcut}")
     public void after(MutableJoinpoint<Void, RuntimeException> joinpoint) throws Throwable {
         this.aopContext.getAopMetrics().startupApplication();
     }

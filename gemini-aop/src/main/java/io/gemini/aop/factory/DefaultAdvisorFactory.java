@@ -15,13 +15,17 @@
  */
 package io.gemini.aop.factory;
 
+import static net.bytebuddy.matcher.ElementMatchers.not;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
@@ -37,9 +41,10 @@ import io.gemini.aop.factory.support.AdvisorCreator;
 import io.gemini.aop.factory.support.AdvisorSpec;
 import io.gemini.aop.factory.support.AdvisorSpecScanner;
 import io.gemini.api.aop.Pointcut;
+import io.gemini.api.aop.annotation.ClassLoadingOrder;
 import io.gemini.aspectj.weaver.TypeWorld;
-import io.gemini.core.classloader.ThreadContext;
 import io.gemini.core.concurrent.ConcurrentReferenceHashMap;
+import io.gemini.core.object.ClassScanner;
 import io.gemini.core.pool.TypeResolutionInspector;
 import io.gemini.core.pool.TypeResolutionInspector.ResolutionLevel;
 import io.gemini.core.util.ClassLoaderUtils;
@@ -52,6 +57,11 @@ import net.bytebuddy.description.method.MethodDescription.InDefinedShape;
 import net.bytebuddy.description.type.TypeDefinition;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.dynamic.scaffold.MethodGraph;
+import net.bytebuddy.matcher.ElementMatcher;
+import net.bytebuddy.matcher.ElementMatcher.Junction.Disjunction;
+import net.bytebuddy.matcher.StringMatcher;
+import net.bytebuddy.matcher.StringMatcher.Mode;
+import net.bytebuddy.pool.TypePool;
 import net.bytebuddy.utility.JavaModule;
 
 /**
@@ -65,7 +75,7 @@ import net.bytebuddy.utility.JavaModule;
  *   <li>Fast type-level matching via {@link io.gemini.api.aop.Pointcut#getTypeMatcher()}</li>
  *   <li>Method-level matching via {@link io.gemini.api.aop.Pointcut#getMethodMatcher()}</li>
  * </ol>
- * Inner classes {@link Diagnostic} and {@link TyepResolutionDetector} extend this class
+ * Inner classes {@link Diagnostic} and {@link TypeResolutionDetector} extend this class
  * to add performance metrics collection and type-resolution tracking respectively.
  * </p>
  *
@@ -81,6 +91,8 @@ class DefaultAdvisorFactory implements AdvisorFactory {
 
     private final Collection<? extends AdvisorSpec> advisorSpecs;
     private final AdvisorCreator advisorCreator;
+
+    private final ElementMatcher<String> aspectTypeMatcher;
 
     // cache advisors per ClassLoader
     private final ConcurrentMap<ClassLoader, List<? extends Advisor>> advisorPerClassLoaderMap;
@@ -100,6 +112,12 @@ class DefaultAdvisorFactory implements AdvisorFactory {
         // 1.resolve AdvisorRepository
         this.advisorSpecs = new AdvisorSpecScanner.Compound(factoryContext).scan(factoryContext);
         this.advisorCreator = new AdvisorCreator.Compound(factoryContext);
+
+        this.aspectTypeMatcher = new AspectTypeMatcherCreator(
+                this.factoryContext.getClassScanner(), 
+                this.factoryContext.getTypePool(),
+                this.advisorSpecs.stream().map( e -> e.getAdviceSpec().getDeclaringTypeName() ).collect( Collectors.toList() )
+        ).createAspectTypeMatcher();
 
         this.validateAdvisorCreation();
 
@@ -226,23 +244,15 @@ class DefaultAdvisorFactory implements AdvisorFactory {
             );
 
 
-        AdvisorContext advisorContext = validateCreation 
-                ? factoryContext.createAdvisorContext(targetClassLoader, null, true)
-                : factoryContext.createAdvisorContext(targetClassLoader, targetJavaModule);
+        AdvisorContext advisorContext = factoryContext.createAdvisorContext(
+                targetClassLoader, targetJavaModule, validateCreation, aspectTypeMatcher);
+
+        Collection<? extends AdvisorSpec> advisorSpecs = this.advisorSpecs;
 
         AopContext aopContext = factoryContext.getAopContext();
         List<Advisor> advisors = aopContext.getGlobalTaskExecutor().executeTasks(
                 advisorSpecs, 
-                advisorSpec -> advisorCreator.create(advisorContext, advisorSpec),
-                result -> {
-                    ClassLoader existingClassLoader = ThreadContext.getContextClassLoader();
-                    try {
-                        ThreadContext.setContextClassLoader(targetClassLoader);   // set targetClassLoader
-                        return result.get();
-                    } finally {
-                        ThreadContext.setContextClassLoader(existingClassLoader);
-                    }
-                }
+                advisorSpec -> advisorCreator.create(advisorContext, advisorSpec)
         )
         .stream()
         .filter( e -> e != null)
@@ -283,7 +293,7 @@ class DefaultAdvisorFactory implements AdvisorFactory {
         // check typeMatcher of Advisors
         List<Advisor.PointcutAdvisor> matchedAdvisors = new ArrayList<>();
         for (Advisor advisor : advisors) {
-            PointcutAdvisor pointcutAdvisor = doFastMatchAdvisor(targetType, advisor);
+            PointcutAdvisor pointcutAdvisor = doFastMatchAdvisor(targetType,advisor);
             if (pointcutAdvisor == null)
                 continue;
 
@@ -422,6 +432,144 @@ class DefaultAdvisorFactory implements AdvisorFactory {
         this.factoryContext.close();
     }
 
+
+    static class AspectTypeMatcherCreator {
+
+        private final Set<String> parentFirstTypes;
+        private final Set<String> childFirstTypes;
+
+        private final Set<String> parentFirstPackages;
+        private final Set<String> childFirstPackages;
+
+
+        public AspectTypeMatcherCreator(ClassScanner classScanner, TypePool typePool, Collection<String> adviceTypeNames) {
+            Class<ClassLoadingOrder> classLoadingOrderClass = ClassLoadingOrder.class;
+
+            // 1.collect all types annotated with {@link ClassLoadingPriority}
+            List<String> classNamesWithAnnotation = classScanner.getClassNamesWithAnnotation(classLoadingOrderClass.getName());
+            this.parentFirstTypes = new HashSet<>(classNamesWithAnnotation.size());
+            this.childFirstTypes = new HashSet<>(classNamesWithAnnotation.size());
+            for (String typeName : classNamesWithAnnotation) {
+                TypeDescription typeDescription = typePool.describe(typeName).resolve();
+                ClassLoadingOrder.Order order = typeDescription.getDeclaredAnnotations()
+                        .ofType(classLoadingOrderClass)
+                        .load()
+                        .value();
+
+                if (ClassLoadingOrder.Order.CHILD_FIRST == order)
+                    childFirstTypes.add(typeName);
+                else if (ClassLoadingOrder.Order.PARENT_FIRST == order)
+                    parentFirstTypes.add(typeName);
+            }
+
+            // 2.collect all packages annotated with {@link ClassLoadingPriority}
+            List<String> packageNames = classScanner.getPackageNamesWithAnnotation(classLoadingOrderClass.getName());
+            Set<String> parentFirstPackages = new HashSet<>(packageNames.size());
+            Set<String> childFirstPackages = new HashSet<>(packageNames.size());
+            for (String packageName : packageNames) {
+                TypeDescription typeDescription = typePool.describe(packageName + ".package-info").resolve(); 
+                ClassLoadingOrder.Order order = typeDescription.getDeclaredAnnotations()
+                        .ofType(classLoadingOrderClass)
+                        .load()
+                        .value();
+
+                String pkgName = packageName + ".";
+                if (ClassLoadingOrder.Order.CHILD_FIRST == order) {
+                    // remove redundant type
+                    childFirstTypes.removeIf( e -> e.startsWith(pkgName) );
+
+                    childFirstPackages.add(pkgName);
+                } else if (ClassLoadingOrder.Order.PARENT_FIRST == order) {
+                    // remove redundant type
+                    parentFirstTypes.removeIf( e -> e.startsWith(pkgName) );
+
+                    parentFirstPackages.add(pkgName);
+                }
+            }
+
+            // 3.collect all advice types
+            for (String adviceType : adviceTypeNames) {
+                // remove redundant type
+                childFirstTypes.removeIf( typeName -> typeName.equals(adviceType) );
+
+                // remove conflict type
+                if (parentFirstTypes.removeIf( typeName -> typeName.equals(adviceType) ))
+                    continue;
+
+                int pos = adviceType.lastIndexOf(".");
+                String advicePackage = pos == -1 ? "" : adviceType.substring(0, pos + 1);
+                // remove conflict package
+                if (parentFirstPackages.removeIf( packageName -> packageName.equals(advicePackage) ))
+                    continue;
+
+                childFirstPackages.add(advicePackage);
+            }
+
+            // 4.remove redundant sub packages
+            this.childFirstPackages = mergePackageName(childFirstPackages);
+            this.parentFirstPackages = mergePackageName(parentFirstPackages);
+        }
+
+        private Set<String> mergePackageName(Set<String> packageNames) {
+            List<String> sortedPackages = new ArrayList<>(packageNames);
+            sortedPackages.sort( (a, b) -> a.length() - b.length() );
+
+            Set<String> mergedPackage = new HashSet<>();
+            for (String packageName : sortedPackages) {
+                boolean isRedundant = false;
+                for (String existing : mergedPackage) {
+                    if (packageName.startsWith(existing)) {
+                        isRedundant = true;
+                        break;
+                    }
+                }
+                if (!isRedundant) {
+                    mergedPackage.add(packageName);
+                }
+            }
+            return mergedPackage;
+        }
+
+        protected Set<String> getParentFirstTypes() {
+            return parentFirstTypes;
+        }
+
+        protected Set<String> getChildFirstTypes() {
+            return childFirstTypes;
+        }
+
+        protected Set<String> getParentFirstPackages() {
+            return parentFirstPackages;
+        }
+
+        protected Set<String> getChildFirstPackages() {
+            return childFirstPackages;
+        }
+
+        public ElementMatcher.Junction<String> createAspectTypeMatcher() {
+            // create matcher
+            List<ElementMatcher<? super String>> parentFirstMatchers = new ArrayList<>(parentFirstTypes.size() + parentFirstPackages.size());
+            for (String parentFirstType : parentFirstTypes)
+                parentFirstMatchers.add( 
+                        new StringMatcher(parentFirstType, Mode.EQUALS_FULLY) );
+            for (String packageName : parentFirstPackages)
+                parentFirstMatchers.add( 
+                        new StringMatcher(packageName, Mode.STARTS_WITH) );
+
+            List<ElementMatcher<? super String>> childFirstMatchers = new ArrayList<>(childFirstTypes.size() + childFirstPackages.size());
+            for (String childFirstType : childFirstTypes)
+                childFirstMatchers.add( 
+                        new StringMatcher(childFirstType, Mode.EQUALS_FULLY) );
+            for (String packageName : childFirstPackages)
+                childFirstMatchers.add( 
+                        new StringMatcher(packageName, Mode.STARTS_WITH) );
+            Disjunction<String> childFirstMatcher = new ElementMatcher.Junction.Disjunction<String>(childFirstMatchers);
+
+            return parentFirstMatchers.size() != 0 
+                    ? not ( new ElementMatcher.Junction.Disjunction<String>(parentFirstMatchers) ).and( childFirstMatcher )
+                    : childFirstMatcher;
+        }
+    }
 
     /**
      * Extends {@link DefaultAdvisorFactory} to collect per-type weaving metrics
@@ -564,12 +712,12 @@ class DefaultAdvisorFactory implements AdvisorFactory {
      * (i.e., required loading of additional type information) during fast-match and method-match phases.
      * Resolution levels are recorded per advisor and reported in the startup metrics summary.
      */
-    static class TyepResolutionDetector extends Diagnostic {
+    static class TypeResolutionDetector extends Diagnostic {
 
         private final ConcurrentMap<String, ConcurrentMap<String, ResolutionLevel>> typeAdvisorTypeResolutionLevels;
 
 
-        public TyepResolutionDetector(FactoryContext factoryContext) {
+        public TypeResolutionDetector(FactoryContext factoryContext) {
             super(factoryContext);
 
             this.typeAdvisorTypeResolutionLevels = new ConcurrentHashMap<>();
@@ -612,8 +760,10 @@ class DefaultAdvisorFactory implements AdvisorFactory {
                 return super.getAdvisors(targetType, 
                         targetClassLoader, targetModule);
             } finally {
+                ConcurrentMap<String, ResolutionLevel> advisorTypeResolutionLevels = removeAdvisorTypeResolutionLevels(targetType);
+                if (advisorTypeResolutionLevels != null && advisorTypeResolutionLevels.size() != 0)
                 AopMetrics.currentTypeMetrics().addAdvisorResolutuonLevelMap(
-                        removeAdvisorTypeResolutionLevels(targetType) );
+                        advisorTypeResolutionLevels );
             }
         }
 
@@ -625,7 +775,6 @@ class DefaultAdvisorFactory implements AdvisorFactory {
             // match pointcut of advisor and record type resolution info
             TypeResolutionInspector typeResolutionInspector = targetType instanceof TypeResolutionInspector
                     ? (TypeResolutionInspector) targetType : null;
-
             try {
                 if (typeResolutionInspector != null)
                     typeResolutionInspector.resetInspection();
@@ -641,32 +790,8 @@ class DefaultAdvisorFactory implements AdvisorFactory {
                             getAdvisorTypeResolutionLevels(targetType);
                     if (ResolutionLevel.NO_RESOLUTION != resolutionLevel)
                         advisorTypeResolutionLevels.put(advisor.getAdvisorName(), resolutionLevel);
-                }
+                } 
             }
-
-        }
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        protected boolean doMatchAdvisor(TypeDescription targetType, 
-                ClassLoader targetClassLoader, JavaModule targetModule, 
-                InDefinedShape targetMethod, Advisor.PointcutAdvisor pointcutAdvisor) {
-            if (super.doMatchAdvisor(targetType,
-                    targetClassLoader, targetModule, targetMethod, pointcutAdvisor) == false)
-                return false;
-
-            // exclude Advisor
-            TypeResolutionInspector typeResolutionInspector = targetType instanceof TypeResolutionInspector
-                    ? (TypeResolutionInspector) targetType : null;
-            if (typeResolutionInspector != null) {
-                Map<String, ResolutionLevel> advisorTypeResolutionLevels = 
-                        getAdvisorTypeResolutionLevels(targetType);
-                advisorTypeResolutionLevels.remove(pointcutAdvisor.getAdvisorName());
-            }
-
-            return true;
         }
     }
 }
