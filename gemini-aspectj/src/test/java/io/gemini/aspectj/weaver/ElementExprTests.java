@@ -29,7 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.gemini.api.classloader.ClassLoaders;
-import io.gemini.aspectj.weaver.world.BytebuddyWorld;
+import io.gemini.aspectj.weaver.world.ByteBuddyWorld;
 import io.gemini.core.pool.TypePoolFactory;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.dynamic.ClassFileLocator;
@@ -378,7 +378,7 @@ public class ElementExprTests {
                 ClassFileLocator.ForClassLoader.ofSystemLoader(), 
                 ReaderMode.FAST
         );
-        TypeWorld typeWorld = new BytebuddyWorld(typePool, null);
+        TypeWorld typeWorld = new ByteBuddyWorld(typePool, null);
 
         Pointcut matcher = ExprParser.INSTANCE.parsePointcutExpr(
                 typeWorld, "execution(public java.lang.Object java.util.ArrayList+.get(..))");

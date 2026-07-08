@@ -26,6 +26,7 @@ import org.aspectj.bridge.IMessageHandler;
 import org.aspectj.weaver.BoundedReferenceType;
 import org.aspectj.weaver.IWeavingSupport;
 import org.aspectj.weaver.MemberKind;
+import org.aspectj.weaver.MissingResolvedTypeWithKnownSignature;
 import org.aspectj.weaver.ReferenceType;
 import org.aspectj.weaver.ReferenceTypeDelegate;
 import org.aspectj.weaver.ResolvedMember;
@@ -39,6 +40,7 @@ import org.aspectj.weaver.UnresolvedType;
 import org.aspectj.weaver.World;
 
 import io.gemini.aspectj.weaver.TypeWorld;
+import io.gemini.core.util.ClassUtils;
 import io.gemini.core.util.CollectionUtils;
 import io.gemini.core.util.PlaceholderHelper;
 import net.bytebuddy.description.ByteCodeElement.Member;
@@ -49,6 +51,7 @@ import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.description.type.TypeDescription.Generic;
 import net.bytebuddy.description.type.TypeList;
 import net.bytebuddy.pool.TypePool;
+import net.bytebuddy.pool.TypePool.Resolution.NoSuchTypeException;
 
 
 /**
@@ -61,7 +64,7 @@ import net.bytebuddy.pool.TypePool;
  *
  * @author   martin.liu
  */
-public class BytebuddyWorld extends World implements TypeWorld {
+public class ByteBuddyWorld extends World implements TypeWorld {
 
     protected final static TypeDescription OBJECT_DESCRIPTION = TypeDescription.ForLoadedType.of(Object.class);
 
@@ -81,7 +84,7 @@ public class BytebuddyWorld extends World implements TypeWorld {
      * @param placeholderHelper optional helper for resolving placeholder expressions in pointcut strings;
      *                          may be {@code null}
      */
-    public BytebuddyWorld(TypePool typePool, PlaceholderHelper placeholderHelper) {
+    public ByteBuddyWorld(TypePool typePool, PlaceholderHelper placeholderHelper) {
         this.setMessageHandler(new ExceptionBasedMessageHandler());
         setBehaveInJava5Way(true);
 
@@ -140,7 +143,8 @@ public class BytebuddyWorld extends World implements TypeWorld {
 
         String typeName = typeDescription.getTypeName();
         if (typeDescription.isArray()) {
-            UnresolvedType ut = UnresolvedType.forSignature(typeName.replace('.', '/'));
+            UnresolvedType ut = UnresolvedType.forSignature(
+                    typeName.replace(ClassUtils.PACKAGE_SEPARATOR, ClassUtils.RESOURCE_SPERATOR));
             return this.resolve(ut, false);
         } else {
             return this.resolve(
@@ -148,7 +152,19 @@ public class BytebuddyWorld extends World implements TypeWorld {
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public ResolvedType resolve(UnresolvedType unresolvedType, boolean allowMissing) {
+        try {
+            return super.resolve(unresolvedType, allowMissing);
+        } catch (NoSuchTypeException e) { 
+            return new MissingResolvedTypeWithKnownSignature(unresolvedType.getSignature(), this);
+        }
+    }
 
+    
     /**
      * {@inheritDoc}
      */
@@ -164,7 +180,6 @@ public class BytebuddyWorld extends World implements TypeWorld {
             return null;
         }
     }
-
 
     /**
      * {@inheritDoc}
@@ -311,7 +326,7 @@ public class BytebuddyWorld extends World implements TypeWorld {
     }
 
 
-    public static class TypeResolutionDetector extends BytebuddyWorld {
+    public static class TypeResolutionDetector extends ByteBuddyWorld {
 
         /**
          * Creates a {@code TypeResolutionDetector} world that tracks which type properties

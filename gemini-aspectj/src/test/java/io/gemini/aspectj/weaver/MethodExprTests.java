@@ -21,7 +21,7 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
-import io.gemini.aspectj.weaver.world.BytebuddyWorld;
+import io.gemini.aspectj.weaver.world.ByteBuddyWorld;
 import net.bytebuddy.agent.builder.AgentBuilder.PoolStrategy;
 import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.type.TypeDescription;
@@ -33,7 +33,7 @@ public class MethodExprTests extends AbstractTests {
 
     @Test
     public void testFindMethod() {
-        BytebuddyWorld typeWorld = this.doCreateTypeWorld();
+        ByteBuddyWorld typeWorld = this.doCreateTypeWorld();
 
         PoolStrategy poolStrategy = PoolStrategy.ClassLoading.FAST;
         TypePool typePool = poolStrategy.typePool(ClassFileLocator.NoOp.INSTANCE, this.getClass().getClassLoader());

@@ -18,7 +18,7 @@ package io.gemini.aspectj.weaver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.gemini.aspectj.weaver.world.BytebuddyWorld;
+import io.gemini.aspectj.weaver.world.ByteBuddyWorld;
 import net.bytebuddy.agent.builder.AgentBuilder.PoolStrategy;
 import net.bytebuddy.dynamic.ClassFileLocator;
 import net.bytebuddy.pool.TypePool;
@@ -33,11 +33,11 @@ public abstract class AbstractTests {
     protected static final Logger LOGGER = LoggerFactory.getLogger(AbstractTests.class);
 
 
-    protected BytebuddyWorld doCreateTypeWorld() {
+    protected ByteBuddyWorld doCreateTypeWorld() {
         PoolStrategy poolStrategy = PoolStrategy.ClassLoading.FAST;
         TypePool typePool = poolStrategy.typePool(ClassFileLocator.NoOp.INSTANCE, this.getClass().getClassLoader());
 
-        BytebuddyWorld world = new BytebuddyWorld(typePool, null);
+        ByteBuddyWorld world = new ByteBuddyWorld(typePool, null);
         return world;
     }
 

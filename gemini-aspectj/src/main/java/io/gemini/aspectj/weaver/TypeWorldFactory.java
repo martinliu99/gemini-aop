@@ -17,7 +17,7 @@ package io.gemini.aspectj.weaver;
 
 import java.util.concurrent.ConcurrentMap;
 
-import io.gemini.aspectj.weaver.world.BytebuddyWorld;
+import io.gemini.aspectj.weaver.world.ByteBuddyWorld;
 import io.gemini.core.concurrent.ConcurrentReferenceHashMap;
 import io.gemini.core.pool.TypePoolFactory;
 import io.gemini.core.util.ClassLoaderUtils;
@@ -49,13 +49,13 @@ public interface TypeWorldFactory {
 
     /**
      * Abstract base implementation providing a shared {@link #doCreateTypeWorld} factory method
-     * that constructs a {@link BytebuddyWorld} from a given {@link TypePool} and optional
+     * that constructs a {@link ByteBuddyWorld} from a given {@link TypePool} and optional
      * {@link PlaceholderHelper}. Subclasses override this method to return specialised world variants.
      */
     abstract class AbstractBase implements TypeWorldFactory {
 
         protected TypeWorld doCreateTypeWorld(TypePool typePool, PlaceholderHelper placeholderHelper) {
-            return new BytebuddyWorld(typePool, placeholderHelper);
+            return new ByteBuddyWorld(typePool, placeholderHelper);
         }
     }
 
@@ -118,7 +118,7 @@ public interface TypeWorldFactory {
              */
             @Override
             protected TypeWorld doCreateTypeWorld(TypePool typePool, PlaceholderHelper placeholderHelper) {
-                return new BytebuddyWorld.TypeResolutionDetector(typePool, placeholderHelper);
+                return new ByteBuddyWorld.TypeResolutionDetector(typePool, placeholderHelper);
             }
         }
     }

@@ -49,7 +49,7 @@ class InternalResolvedMember extends ResolvedMemberImpl {
 
     private static final ResolvedType[][] NO_PARAMETER_ANNOTATIONS = new ResolvedType[][] {};
 
-    private final BytebuddyWorld typeWorld;
+    private final ByteBuddyWorld typeWorld;
 
     private final Member member;
     private final MethodDescription methodDescription;
@@ -63,7 +63,7 @@ class InternalResolvedMember extends ResolvedMemberImpl {
      * @param typeWorld        the ByteBuddy world used for type conversion
      * @param fieldDescription the ByteBuddy field description to wrap
      */
-    public InternalResolvedMember(BytebuddyWorld typeWorld, FieldDescription fieldDescription) {
+    public InternalResolvedMember(ByteBuddyWorld typeWorld, FieldDescription fieldDescription) {
         super(
                 org.aspectj.weaver.Member.FIELD,
                 typeWorld.convertType(fieldDescription.getDeclaringType()), 
@@ -85,7 +85,7 @@ class InternalResolvedMember extends ResolvedMemberImpl {
      * @param typeWorld         the ByteBuddy world used for type conversion
      * @param methodDescription the ByteBuddy method description to wrap
      */
-    public InternalResolvedMember(BytebuddyWorld typeWorld, MethodDescription methodDescription) {
+    public InternalResolvedMember(ByteBuddyWorld typeWorld, MethodDescription methodDescription) {
         super(
                 methodDescription.isConstructor() 
                     ? org.aspectj.weaver.Member.CONSTRUCTOR 

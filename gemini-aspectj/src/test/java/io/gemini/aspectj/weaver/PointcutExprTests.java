@@ -22,7 +22,7 @@ import org.aspectj.weaver.patterns.FastMatchInfo;
 import org.aspectj.weaver.patterns.Pointcut;
 import org.junit.jupiter.api.Test;
 
-import io.gemini.aspectj.weaver.world.BytebuddyWorld;
+import io.gemini.aspectj.weaver.world.ByteBuddyWorld;
 import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.type.TypeDescription;
 
@@ -31,7 +31,7 @@ public class PointcutExprTests extends AbstractTests {
 
     @Test
     public void testPointcut() {
-        BytebuddyWorld typeWorld = this.doCreateTypeWorld();
+        ByteBuddyWorld typeWorld = this.doCreateTypeWorld();
 
         Pointcut pointcut = ExprParser.INSTANCE.parsePointcutExpr(typeWorld, 
                 "execution(* io.gemini.*.*.PointcutExprTests.matchType(..))");
@@ -51,14 +51,14 @@ public class PointcutExprTests extends AbstractTests {
         }
     }
 
-    private boolean matchType(BytebuddyWorld typeWorld, Pointcut pointcut, TypeDescription typeDescription) {
+    private boolean matchType(ByteBuddyWorld typeWorld, Pointcut pointcut, TypeDescription typeDescription) {
         ResolvedType resolvedType = typeWorld.resolve(typeDescription);
 
         FastMatchInfo info = new FastMatchInfo(resolvedType, null, typeWorld);
         return pointcut.fastMatch(info).maybeTrue();
     }
 
-    private boolean matchSignature(BytebuddyWorld typeWorld, Pointcut pointcut, TypeDescription typeDescription) {
+    private boolean matchSignature(ByteBuddyWorld typeWorld, Pointcut pointcut, TypeDescription typeDescription) {
         for (MethodDescription methodDescription : typeDescription.getDeclaredMethods()) {
             if (pointcut.match(typeWorld.makeShadow(methodDescription)).alwaysTrue())
                 return true;

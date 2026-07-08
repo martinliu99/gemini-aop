@@ -43,7 +43,7 @@ import io.gemini.aspectj.weaver.PointcutParameter.ParamCategory;
 @SuppressWarnings("rawtypes")
 class InternalShadow extends Shadow {
 
-    private final BytebuddyWorld world;
+    private final ByteBuddyWorld world;
 
     private final ResolvedType enclosingType;
     private final ResolvedMember enclosingMember;
@@ -69,7 +69,7 @@ class InternalShadow extends Shadow {
      * @param enclosingType   the type enclosing this joinpoint
      * @param enclosingMember the member enclosing this joinpoint, or {@code null}
      */
-    public InternalShadow(BytebuddyWorld world, Kind kind, 
+    public InternalShadow(ByteBuddyWorld world, Kind kind, 
             Member signature, Shadow enclosingShadow, 
             ResolvedType enclosingType, ResolvedMember enclosingMember) {
         super(kind, signature, enclosingShadow);

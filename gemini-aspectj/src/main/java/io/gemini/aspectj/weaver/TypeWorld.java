@@ -24,7 +24,7 @@ import org.aspectj.weaver.Shadow;
 import org.aspectj.weaver.World;
 
 import io.gemini.api.BaseException;
-import io.gemini.aspectj.weaver.world.BytebuddyWorld;
+import io.gemini.aspectj.weaver.world.ByteBuddyWorld;
 import net.bytebuddy.description.ByteCodeElement.Member;
 import net.bytebuddy.description.type.TypeDefinition;
 import net.bytebuddy.description.type.TypeDescription;
@@ -43,7 +43,7 @@ import net.bytebuddy.pool.TypePool;
  */
 public interface TypeWorld {
 
-    TypeWorld EMPTY_WORLD = new TypeWorld.LazyFacade( new BytebuddyWorld(TypePool.Empty.INSTANCE, null) );
+    TypeWorld EMPTY_WORLD = new TypeWorld.LazyFacade( new ByteBuddyWorld(TypePool.Empty.INSTANCE, null) );
 
 
     /**

@@ -85,7 +85,7 @@ class InternalReferenceTypeDelegate implements ReferenceTypeDelegate {
     private static final Logger LOGGER = LoggerFactory.getLogger(InternalReferenceTypeDelegate.class);
 
 
-    private final BytebuddyWorld typeWorld;
+    private final ByteBuddyWorld typeWorld;
 
     private final TypeDescription typeDescription;
     private final ReferenceType resolvedTypeX;
@@ -113,7 +113,7 @@ class InternalReferenceTypeDelegate implements ReferenceTypeDelegate {
      * @param typeDescription the ByteBuddy type description providing type metadata
      * @param resolvedTypeX   the AspectJ reference type this delegate belongs to
      */
-    public InternalReferenceTypeDelegate(BytebuddyWorld typeWorld, 
+    public InternalReferenceTypeDelegate(ByteBuddyWorld typeWorld, 
             TypeDescription typeDescription, ReferenceType resolvedTypeX) {
         this.typeWorld = typeWorld;
 
@@ -464,7 +464,6 @@ class InternalReferenceTypeDelegate implements ReferenceTypeDelegate {
 
     private ResolvedPointcutDefinition[] createDeclaredPointcuts(List<PointcutMethod> pointcutMethods) {
         List<ResolvedPointcutDefinition> pointcutDefs = new ArrayList<ResolvedPointcutDefinition>(pointcutMethods.size());
-        PointcutParser pointcutParser = new PointcutParser(typeWorld);
 
         // phase 1, create legitimate entries in pointcuts[] before we
         // attempt to resolve *any* of the pointcuts
@@ -484,6 +483,8 @@ class InternalReferenceTypeDelegate implements ReferenceTypeDelegate {
         }
 
         // phase 2, now go back round and resolve in-place all of the pointcuts
+        PointcutParser pointcutParser = new PointcutParser(typeWorld);
+
         List<Map<String, String>> formalParameterList = new ArrayList<>(pointcutMethods.size());
         for (int i = 0; i < pointcutDefs.size(); i++) {
             ResolvedPointcutDefinition pointcutDef = pointcutDefs.get(i);
@@ -932,9 +933,10 @@ class InternalReferenceTypeDelegate implements ReferenceTypeDelegate {
          * @param typeDescription the ByteBuddy type description
          * @param resolvedTypeX   the AspectJ reference type this delegate belongs to
          */
-        public TypeResolutionDetector(BytebuddyWorld typeWorld, TypeDescription typeDescription, ReferenceType resolvedTypeX) {
+        public TypeResolutionDetector(ByteBuddyWorld typeWorld, TypeDescription typeDescription, ReferenceType resolvedTypeX) {
             super(typeWorld, typeDescription, resolvedTypeX);
         }
+
 
         /**
          * Marks the type as requiring super-type resolution, then delegates to the parent.
@@ -956,12 +958,9 @@ class InternalReferenceTypeDelegate implements ReferenceTypeDelegate {
          */
         @Override
         public ResolvedType getSuperclass() {
-            ResolvedType superClass = super.getSuperclass();
+            this.setResolutionLevel(ResolutionLevel.SUPER_TYPE_RESOLUTION);
 
-            if (superClass != null)
-                this.setResolutionLevel(ResolutionLevel.SUPER_TYPE_RESOLUTION);
-
-            return superClass;
+            return super.getSuperclass();
         }
 
         private void setResolutionLevel(ResolutionLevel resolutionLevel) {

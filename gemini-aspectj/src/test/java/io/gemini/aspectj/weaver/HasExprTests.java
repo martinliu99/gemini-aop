@@ -44,7 +44,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.gemini.aspectj.weaver.patterns.HasPatternParser;
-import io.gemini.aspectj.weaver.world.BytebuddyWorld;
+import io.gemini.aspectj.weaver.world.ByteBuddyWorld;
+import io.gemini.core.util.ClassUtils;
 import net.bytebuddy.description.type.TypeDescription;
 
 public class HasExprTests extends AbstractTests {
@@ -54,7 +55,7 @@ public class HasExprTests extends AbstractTests {
 
     @Test
     public void testHasType() {
-        BytebuddyWorld typeWorld = this.doCreateTypeWorld();
+        ByteBuddyWorld typeWorld = this.doCreateTypeWorld();
 
         assertThat(ExprParser.INSTANCE.hasType(typeWorld,
                 "io.gemini.aspectj.weaver.HasExprTests && io.gemini.aspectj.weaver.PointcutExprTests")).isTrue();
@@ -67,7 +68,7 @@ public class HasExprTests extends AbstractTests {
 
     @Test
     public void testHasField() {
-        BytebuddyWorld typeWorld = this.doCreateTypeWorld();
+        ByteBuddyWorld typeWorld = this.doCreateTypeWorld();
 
         assertThat(ExprParser.INSTANCE.hasField(typeWorld,
                 "org.slf4j.Logger io.gemini.aspectj.weaver.HasExprTests.LOGGER")).isTrue();
@@ -81,7 +82,7 @@ public class HasExprTests extends AbstractTests {
 
     @Test
     public void testHasMethod() {
-        BytebuddyWorld typeWorld = this.doCreateTypeWorld();
+        ByteBuddyWorld typeWorld = this.doCreateTypeWorld();
 
         assertThat(ExprParser.INSTANCE.hasMethod(typeWorld,
                 "* io.gemini.aspectj.weaver.HasExprTests.testHasMethod() && java.util.List<java.lang.String> io.gemini.aspectj.weaver.HasExprTests.replace(..)")).isTrue();
@@ -174,7 +175,8 @@ public class HasExprTests extends AbstractTests {
 
     private UnresolvedType toUnresolvedType(TypeDescription clazz) {
         if (clazz.isArray()) {
-            return UnresolvedType.forSignature(clazz.getName().replace('.', '/'));
+            return UnresolvedType.forSignature(clazz.getName()
+                    .replace(ClassUtils.PACKAGE_SEPARATOR, ClassUtils.RESOURCE_SPERATOR));
         } else {
             return UnresolvedType.forName(clazz.getName());
         }
