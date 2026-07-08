@@ -263,7 +263,9 @@ public enum ExprParser {
         pointcutDeclaringTypeName = pointcutDeclaringTypeName == null
                 ? Object.class.getName() : pointcutDeclaringTypeName;
 
-        ResolvedType pointcutDeclaringType = typeWorld.resolve(pointcutDeclaringTypeName);
+        ResolvedType pointcutDeclaringType = typeWorld.getWorld().resolve(
+                new UnresolvedAspectType(pointcutDeclaringTypeName)
+        );
 
         return new PointcutParser(typeWorld, supportedPointcutKinds).parsePointcut(
                 pointcutExpression, pointcutDeclaringType, pointcutParameters);

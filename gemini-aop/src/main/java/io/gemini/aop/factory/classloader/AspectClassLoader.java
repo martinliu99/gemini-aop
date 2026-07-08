@@ -27,6 +27,7 @@ import io.gemini.api.classloader.BaseClassLoader;
 import io.gemini.core.concurrent.ConcurrentReferenceHashMap;
 import io.gemini.core.util.Assert;
 import io.gemini.core.util.ClassLoaderUtils;
+import io.gemini.core.util.ClassUtils;
 import io.gemini.core.util.CompoundEnumeration;
 import io.gemini.core.util.IOUtils;
 import net.bytebuddy.matcher.ElementMatcher;
@@ -75,20 +76,33 @@ public class AspectClassLoader extends BaseClassLoader {
         return typeDefnitionMap.computeIfAbsent(
                 name, 
                 key -> {
-                    String path = name.replace('.', '/').concat(".class");
-                    InputStream inputStream = null;
-                    try {
-                        URL resource = findResource(path);
-                        inputStream = resource.openStream();
+                    String path = name.replace(ClassUtils.PACKAGE_SEPARATOR, ClassUtils.RESOURCE_SPERATOR).concat(ClassUtils.CLASS_FILE_EXTENSION);
+                    URL resource = findResource(path);
+                    if (resource == null)
+                        return new byte[0];
 
+                    try (InputStream inputStream = resource.openStream()) {
                         return IOUtils.toByteArray( inputStream );
                     } catch (IOException e) {
                         return new byte[0];
-                    } finally {
-                        IOUtils.closeQuietly(inputStream);
                     }
                 }
         );
+    }
+
+    /**
+     * Returns {@link InputStream} og the given resource name.
+     * 
+     * @param name the name of the resource
+     * @return the  instance of {@link InputStream}
+     */
+    public InputStream getAspectResourceAsStream(String name) {
+        URL url = super.getResource(name);
+        try {
+            return url != null ? url.openStream() : null;
+        } catch (IOException e) {
+            return null;
+        }
     }
 
 
@@ -132,11 +146,7 @@ public class AspectClassLoader extends BaseClassLoader {
             ClassLoader.registerAsParallelCapable();
         }
 
-        /**
-         * @param loaderName
-         * @param urls
-         * @param aspectClassLoader
-         */
+
         public PerTargetClassLoader(String loaderName, AspectClassLoader aspectClassLoader,
                 ClassLoader targetClassLoader) {
             super(loaderName, new URL[0], aspectClassLoader);
@@ -205,21 +215,6 @@ public class AspectClassLoader extends BaseClassLoader {
             }
         }
 
-        private Class<?> loadClass(ClassLoader classLoader, String name, boolean resolve, 
-                boolean throwException) throws ClassNotFoundException {
-            Class<?> type = null;
-            try {
-                type = classLoader.loadClass(name);
-                if (resolve) {
-                    resolveClass(type);
-                }
-            } catch (ClassNotFoundException e) {
-                if (throwException) throw e;
-            }
-
-            return type;
-        }
-
         /**
          * 
          * {@inheritDoc}
@@ -239,6 +234,21 @@ public class AspectClassLoader extends BaseClassLoader {
             }
         }
 
+        private Class<?> loadClass(ClassLoader classLoader, String name, boolean resolve, 
+                boolean throwException) throws ClassNotFoundException {
+            Class<?> type = null;
+            try {
+                type = classLoader.loadClass(name);
+                if (resolve) {
+                    resolveClass(type);
+                }
+            } catch (ClassNotFoundException e) {
+                if (throwException) throw e;
+            }
+
+            return type;
+        }
+
 
         /**
          * {@inheritDoc}
@@ -250,6 +260,13 @@ public class AspectClassLoader extends BaseClassLoader {
             ClassLoader targetCL = getTargetClassLoader();
             if (targetCL == null || !this.targetResourceMatcher.matches(name)) {
                 // 1.1.load aspect and AOP framework resources via current and parent class loader
+                if (this.aspectTypeMatcher.matches(name)) {
+                    URL url = this.findResource(name);
+                    if (url != null) {
+                        return url;
+                    }
+                }
+
                 URL url = super.getResource(name);
                 if (url != null) {
                     return url;
@@ -260,7 +277,6 @@ public class AspectClassLoader extends BaseClassLoader {
             } else {
                 // 1.1.load target resources via target class loader
                 return targetCL.getResource(name);
-
             }
         }
 

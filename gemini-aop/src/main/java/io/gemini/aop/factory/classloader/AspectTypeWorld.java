@@ -23,7 +23,8 @@ import org.aspectj.weaver.UnresolvedType;
 
 import io.gemini.aspectj.weaver.TypeWorld;
 import io.gemini.aspectj.weaver.TypeWorldFactory;
-import io.gemini.aspectj.weaver.world.BytebuddyWorld;
+import io.gemini.aspectj.weaver.UnresolvedAspectType;
+import io.gemini.aspectj.weaver.world.ByteBuddyWorld;
 import io.gemini.core.util.PlaceholderHelper;
 
 
@@ -32,7 +33,7 @@ import io.gemini.core.util.PlaceholderHelper;
  *
  * @author   martin.liu
  */
-public class AspectTypeWorld extends BytebuddyWorld {
+public class AspectTypeWorld extends ByteBuddyWorld {
 
     private final AspectClassLoader aspectClassLoader;
     private final TypeWorldFactory typeWorldFactory;
@@ -65,16 +66,11 @@ public class AspectTypeWorld extends BytebuddyWorld {
      */
     public static class PerTargetClassLoader extends AspectTypeWorld {
 
-        /**
-         * @param typePool
-         * @param placeholderHelper
-         * @param aspectClassLoader
-         * @param typeWordlFactory
-         */
         public PerTargetClassLoader(AspectTypePool typePool, PlaceholderHelper placeholderHelper,
                 AspectClassLoader.PerTargetClassLoader aspectClassLoader, TypeWorldFactory typeWordlFactory) {
             super(typePool, placeholderHelper, aspectClassLoader, typeWordlFactory);
         }
+
 
         /**
          * {@inheritDoc}
@@ -82,17 +78,19 @@ public class AspectTypeWorld extends BytebuddyWorld {
         @Override
         public ResolvedType resolve(UnresolvedType unresolvedType, boolean allowMissing) {
             // 1.resolve target type firstly
-            try {
-                ResolvedType resolvedType = super.resolve(unresolvedType, allowMissing);
-                if (resolvedType != null && resolvedType.isMissing() == false)
-                    return resolvedType;
-            } catch (Exception ignored) { /* do nothing */ }
+            if (!unresolvedType.isPrimitiveType() && unresolvedType instanceof UnresolvedAspectType == false) {
+                try {
+                    ClassLoader targetCL = getAspectClassLoader().getTargetClassLoader();
+                    TypeWorld targetTypeWorld = getTypeWorldFactory().createTypeWorld(targetCL, null);
 
+                    ResolvedType resolvedType = targetTypeWorld.getWorld().resolve(unresolvedType, allowMissing);
+                    if (resolvedType != null && resolvedType.isMissing() == false)
+                        return resolvedType;
+                } catch (Exception ignored) { /* do nothing */ }
+            }
 
             // 2.resolve aspect type
-            ClassLoader targetCL = getAspectClassLoader().getTargetClassLoader();
-            TypeWorld targetTypeWorld = getTypeWorldFactory().createTypeWorld(targetCL, null);
-            return targetTypeWorld.getWorld().resolve(unresolvedType, allowMissing);
+            return super.resolve(unresolvedType, allowMissing);
         }
 
         /** 

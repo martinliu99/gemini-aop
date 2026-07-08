@@ -15,9 +15,14 @@
  */
 package io.gemini.aop.factory.classloader;
 
+import java.io.IOException;
+import java.io.InputStream;
+
 import io.gemini.core.pool.TypePoolFactory;
+import io.gemini.core.util.ClassUtils;
 import net.bytebuddy.dynamic.ClassFileLocator;
 import net.bytebuddy.pool.TypePool;
+import net.bytebuddy.utility.StreamDrainer;
 
 
 /**
@@ -25,14 +30,17 @@ import net.bytebuddy.pool.TypePool;
  *
  * @author   martin.liu
  */
-public class AspectTypePool extends TypePool.Default {
+public class AspectTypePool extends TypePool.Default.WithLazyResolution {
 
     private final AspectClassLoader aspectClassLoader;
     private final TypePoolFactory typePoolFactory;
 
 
     public AspectTypePool(AspectClassLoader aspectClassLoader, TypePoolFactory typePoolFactory) {
-        super(new CacheProvider.Simple.UsingSoftReference(), ClassFileLocator.ForClassLoader.of(aspectClassLoader), ReaderMode.FAST);
+        super(new CacheProvider.Simple.UsingSoftReference(), 
+                new AspectClassFileLocator(aspectClassLoader), 
+                ReaderMode.FAST, LazinessMode.EXTENDED
+        );
 
         this.aspectClassLoader = aspectClassLoader;
         this.typePoolFactory = typePoolFactory;
@@ -83,9 +91,9 @@ public class AspectTypePool extends TypePool.Default {
          * {@inheritDoc}
          */
         @Override
-        public TypePool.Resolution describe(String name) {
+        public TypePool.Resolution describe(String typeName) {
             // 1.look up cache
-            TypePool.Resolution resolution = this.cacheProvider.find(name);
+            TypePool.Resolution resolution = this.cacheProvider.find(typeName);
             if (resolution != null && resolution.isResolved())
                 return resolution;
 
@@ -94,14 +102,53 @@ public class AspectTypePool extends TypePool.Default {
                 ClassLoader targetCL = getAspectClassLoader().getTargetClassLoader();
                 TypePool typePool = this.getTypePoolFactory().createTypePool(targetCL, null);
 
-                resolution = typePool.describe(name);
+                resolution = typePool.describe(typeName);
                 if (resolution != null && resolution.isResolved())
                     return resolution;
 
             } catch (Exception ignored) { /* do nothing */ }
 
-            // 3.look up via AspectClassLoader
-            return super.describe(name);
+            // 3.look up aspects and AOP framework classes via AspectClassLoader
+            return super.describe(typeName);
+        }
+    }
+
+
+    /**
+     * {@link ClassFileLocator} that reads class bytecode from the aspect class loader's
+     * own classpath via {@link AspectClassLoader#getAspectResourceAsStream(String)}.
+     */
+    static class AspectClassFileLocator implements ClassFileLocator {
+
+        private final AspectClassLoader aspectClassLoader;
+
+        public AspectClassFileLocator(AspectClassLoader aspectClassLoader) {
+            this.aspectClassLoader = aspectClassLoader;
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public ClassFileLocator.Resolution locate(String name) throws IOException {
+            // only load aspects and AOP framework class files
+            String resourceName = name.replace(ClassUtils.PACKAGE_SEPARATOR, ClassUtils.RESOURCE_SPERATOR) + CLASS_FILE_EXTENSION;
+            InputStream inputStream = aspectClassLoader.getAspectResourceAsStream(resourceName);
+            if (inputStream != null) {
+                try (InputStream is = inputStream) {
+                    return new ClassFileLocator.Resolution.Explicit(
+                            StreamDrainer.DEFAULT.drain(inputStream) );
+                }
+            } else {
+                return new ClassFileLocator.Resolution.Illegal(name);
+            }
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public void close() throws IOException {
         }
     }
 }

@@ -15,7 +15,7 @@
  */
 package io.gemini.aspectj.weaver;
 
-import net.bytebuddy.description.type.TypeDescription.Generic;
+import net.bytebuddy.description.type.TypeDescription;
 
 /**
  * Describes a single parameter in an AspectJ pointcut binding.
@@ -62,8 +62,6 @@ public interface PointcutParameter {
         RETURNING_ANNOTATION,
         THROWING_ANNOTATION,
 
-        ARGS_CONVERTION,
-
         THIS_VAR,
         TARGET_VAR,
         ARGS_VAR,
@@ -94,7 +92,7 @@ public interface PointcutParameter {
          *
          * @return the parameter's generic type; never {@code null}
          */
-        Generic getParamType();
+        TypeDescription getParamType();
     }
 
 
@@ -104,7 +102,7 @@ public interface PointcutParameter {
     class Default implements NamedPointcutParameter {
 
         private final String paramName;
-        private final Generic paramType;
+        private final TypeDescription paramType;
         private final ParamCategory paramCategory;
         private final int argsIndex;
 
@@ -115,7 +113,7 @@ public interface PointcutParameter {
          * @param paramType     the parameter's generic type
          * @param paramCategory the parameter category
          */
-        public Default(String paramName, Generic paramType, 
+        public Default(String paramName, TypeDescription paramType, 
                 ParamCategory paramCategory) {
             this.paramName = paramName;
             this.paramType = paramType;
@@ -131,7 +129,7 @@ public interface PointcutParameter {
          * @param paramType          the parameter's generic type
          * @param pointcutParameter  the source parameter to copy category and args index from
          */
-        public Default(String paramName, Generic paramType,
+        public Default(String paramName, TypeDescription paramType,
                 PointcutParameter pointcutParameter) {
             this.paramName = paramName;
             this.paramType = paramType;
@@ -151,7 +149,7 @@ public interface PointcutParameter {
          * {@inheritDoc}
          */
         @Override
-        public Generic getParamType() {
+        public TypeDescription getParamType() {
             return paramType;
         }
 
