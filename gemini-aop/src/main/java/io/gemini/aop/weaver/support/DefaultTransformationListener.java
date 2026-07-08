@@ -88,7 +88,7 @@ public class DefaultTransformationListener extends Listener.Adapter {
     public void onComplete(String targetTypeName, ClassLoader targetClassLoader, 
             JavaModule targetJavaModule, boolean loaded) {
         // release cached data
-        this.aopContext.getTypePoolFactory().removeTypeResolution(targetTypeName);
+        this.aopContext.getTypePoolFactory().removeTypeResolution(targetClassLoader, targetJavaModule, targetTypeName);
     }
 
 
