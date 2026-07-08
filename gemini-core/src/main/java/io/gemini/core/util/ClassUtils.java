@@ -26,7 +26,6 @@ import ch.qos.logback.classic.pattern.TargetLengthBasedClassNameAbbreviator;
 import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.method.ParameterDescription;
 import net.bytebuddy.description.type.TypeDescription;
-import net.bytebuddy.description.type.TypeDescription.Generic;
 
 /**
  * Utility class for class and type operations used throughout the AOP framework.
@@ -256,7 +255,7 @@ public abstract class ClassUtils {
      * @param rightType the potential subtype
      * @return {@code true} if {@code leftType} is assignable from {@code rightType}
      */
-    public static boolean isAssignableFrom(Generic leftType, Generic rightType) {
+    public static boolean isAssignableFrom(TypeDescription leftType, TypeDescription rightType) {
         if (leftType == null || rightType == null)
             return false;
 
@@ -269,18 +268,18 @@ public abstract class ClassUtils {
             return true;
 
         // 3.reference return 
-        return leftType.accept(TypeDescription.Generic.Visitor.Assigner.INSTANCE).isAssignableFrom(rightType);
+        return leftType.isAssignableFrom(rightType);
     }
 
-    private static boolean isAssignablePrimitiveFrom(Generic leftType, Generic rightType) {
+    private static boolean isAssignablePrimitiveFrom(TypeDescription leftType, TypeDescription rightType) {
         if (leftType.isPrimitive() && rightType.isPrimitive()) {
             return leftType.equals(rightType);
         } else if (leftType.isPrimitive()) {
-            TypeDescription _leftType = PRIMITIVE_TYPE_DEFINITION_MAP.get(leftType.asErasure());
-            return _leftType != null && _leftType.isAssignableFrom(rightType.asErasure());
+            TypeDescription _leftType = PRIMITIVE_TYPE_DEFINITION_MAP.get(leftType);
+            return _leftType != null && _leftType.isAssignableFrom(rightType);
         } else if (rightType.isPrimitive()) {
-            TypeDescription _rightType = PRIMITIVE_TYPE_DEFINITION_MAP.get(rightType.asErasure());
-            return _rightType != null && leftType.asErasure().isAssignableFrom(_rightType);
+            TypeDescription _rightType = PRIMITIVE_TYPE_DEFINITION_MAP.get(rightType);
+            return _rightType != null && leftType.isAssignableFrom(_rightType);
         }
 
         return false;
@@ -293,7 +292,7 @@ public abstract class ClassUtils {
      * @param rightType the second type
      * @return {@code true} if the types are equal (considering boxing)
      */
-    public static boolean equals(Generic leftType, Generic rightType) {
+    public static boolean equals(TypeDescription leftType, TypeDescription rightType) {
         if (leftType== null || rightType == null)
             return false;
 
@@ -303,15 +302,15 @@ public abstract class ClassUtils {
         return leftType.equals(rightType);
     }
 
-    private static boolean isSamePrimitive(Generic leftType, Generic rightType) {
+    private static boolean isSamePrimitive(TypeDescription leftType, TypeDescription rightType) {
         if (leftType.isPrimitive() && rightType.isPrimitive()) {
             return leftType.equals(rightType);
         } else if (leftType.isPrimitive()) {
-            TypeDescription _leftType = PRIMITIVE_TYPE_DEFINITION_MAP.get(leftType.asErasure());
-            return _leftType != null && _leftType.equals(rightType.asErasure());
+            TypeDescription _leftType = PRIMITIVE_TYPE_DEFINITION_MAP.get(leftType);
+            return _leftType != null && _leftType.equals(rightType);
         } else if (rightType.isPrimitive()) {
-            TypeDescription _rightType = PRIMITIVE_TYPE_DEFINITION_MAP.get(rightType.asErasure());
-            return _rightType != null && leftType.asErasure().equals(_rightType);
+            TypeDescription _rightType = PRIMITIVE_TYPE_DEFINITION_MAP.get(rightType);
+            return _rightType != null && leftType.equals(_rightType);
         }
 
         return false;

@@ -54,7 +54,7 @@ public class ClassScannerTests {
 
     public static URL[] getClassPathUrls() throws MalformedURLException {
         String classpath = System.getProperty("java.class.path");
-        String[] entries = classpath.split(File.pathSeparator);
+        String[] entries = classpath.split(File.pathSeparator, -1);
         URL[] urls = new URL[entries.length];
         for (int i = 0; i < entries.length; i++) {
             urls[i] = Paths.get(entries[i]).toAbsolutePath().toUri().toURL();

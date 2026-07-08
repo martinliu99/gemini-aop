@@ -37,8 +37,7 @@ import io.gemini.core.converter.Converters;
 import io.gemini.core.util.Assert;
 import io.gemini.core.util.OrderedProperties;
 import io.gemini.core.util.PlaceholderHelper;
-import net.bytebuddy.description.type.TypeDefinition;
-import net.bytebuddy.description.type.TypeDescription.Generic;
+import net.bytebuddy.description.type.TypeDescription;
 
 /**
  * Provides a unified, type-safe view over one or more {@link ConfigSource} instances.
@@ -100,7 +99,7 @@ public interface ConfigView {
      * @return the converted value
      */
     default <T> T getValue(String key, Class<T> targetType) {
-        return getValue(key, true, TypeDefinition.Sort.describe(targetType));
+        return getValue(key, true, TypeDescription.ForLoadedType.of(targetType));
     }
 
     /**
@@ -112,7 +111,7 @@ public interface ConfigView {
      * @return the converted value, or {@code defaultValue} if absent
      */
     default <T> T getValue(String key, T defaultValue, Class<T> targetType) {
-        return getValue(key, defaultValue, true, TypeDefinition.Sort.describe(targetType));
+        return getValue(key, defaultValue, true, TypeDescription.ForLoadedType.of(targetType));
     }
 
     /**
@@ -127,7 +126,7 @@ public interface ConfigView {
      * @return the converted value, or {@code defaultValue} if absent
      */
     default <T> T getValue(String key, T defaultValue, boolean resolvePlaceholders, Class<T> targetType) {
-        return this.getValue(key, defaultValue, resolvePlaceholders, TypeDefinition.Sort.describe(targetType));
+        return this.getValue(key, defaultValue, resolvePlaceholders, TypeDescription.ForLoadedType.of(targetType));
     }
 
 
@@ -140,7 +139,7 @@ public interface ConfigView {
      * @return the converted value, or {@code defaultValue} if absent
      */
     @SuppressWarnings("TypeParameterUnusedInFormals")
-    <T> T getValue(String key, boolean resolvePlaceholders, Generic targetType);
+    <T> T getValue(String key, boolean resolvePlaceholders, TypeDescription targetType);
 
     /**
      * Returns the value for the given key, converted to the specified type, with optional
@@ -153,7 +152,7 @@ public interface ConfigView {
      * @param <T>                 the target type
      * @return the converted value, or {@code defaultValue} if absent
      */
-    <T> T getValue(String key, T defaultValue, boolean resolvePlaceholders, Generic targetType);
+    <T> T getValue(String key, T defaultValue, boolean resolvePlaceholders, TypeDescription targetType);
 
 
     /**
@@ -210,7 +209,7 @@ public interface ConfigView {
      * @return the string value, or {@code null}
      */
     default String getAsString(String key) {
-        String value = this.getValue(key, true, TypeDefinition.Sort.describe(String.class));
+        String value = this.getValue(key, true, TypeDescription.ForLoadedType.of(String.class));
         return value == null ? null : value.trim();
 
     }
@@ -222,7 +221,7 @@ public interface ConfigView {
      * @return the string value, or {@code null}
      */
     default String getAsString(String key, String defaultValue) {
-        String value =this.getValue(key, defaultValue, true, TypeDefinition.Sort.describe(String.class));
+        String value =this.getValue(key, defaultValue, true, TypeDescription.ForLoadedType.of(String.class));
         return value == null ? null : value.trim();
     }
 
@@ -319,7 +318,7 @@ public interface ConfigView {
      * @return the loaded class, or {@code null}
      */
     default <T> Class<T> getAsClass(String key) {
-        return this.getValue(key, true, TypeDefinition.Sort.describe(Class.class));
+        return this.getValue(key, true, TypeDescription.ForLoadedType.of(Class.class));
     }
 
     /**
@@ -330,7 +329,7 @@ public interface ConfigView {
      * @return the loaded class, or {@code null}
      */
     default <T> Class<T> getAsClass(String key, Class<T> defaultValue) {
-        return this.getValue(key, defaultValue, true, TypeDefinition.Sort.describe(Class.class));
+        return this.getValue(key, defaultValue, true, TypeDescription.ForLoadedType.of(Class.class));
     }
 
 
@@ -420,7 +419,7 @@ public interface ConfigView {
          */
         @Override
         @SuppressWarnings("TypeParameterUnusedInFormals")
-        public <T> T getValue(String key, boolean resolvePlaceholders, Generic targetType) {
+        public <T> T getValue(String key, boolean resolvePlaceholders, TypeDescription targetType) {
             Assert.notNull(targetType, "'targetType' must not be null.");
 
             Object value = getValue(key, resolvePlaceholders);
@@ -432,7 +431,7 @@ public interface ConfigView {
          * {@inheritDoc}
          */
         @Override
-        public <T> T getValue(String key, T defaultValue, boolean resolvePlaceholders, Generic targetType) {
+        public <T> T getValue(String key, T defaultValue, boolean resolvePlaceholders, TypeDescription targetType) {
             Assert.notNull(targetType, "'targetType' must not be null.");
 
             Object value = null;
@@ -623,7 +622,7 @@ public interface ConfigView {
          */
         @Override
         @SuppressWarnings("TypeParameterUnusedInFormals")
-        public <T> T getValue(String key, boolean resolvePlaceholders, Generic targetType) {
+        public <T> T getValue(String key, boolean resolvePlaceholders, TypeDescription targetType) {
             if (super.containsKey(key))
                 return super.getValue(key, resolvePlaceholders, targetType);
 
@@ -634,7 +633,7 @@ public interface ConfigView {
          * {@inheritDoc}
          */
         @Override
-        public <T> T getValue(String key, T defaultValue, boolean resolvePlaceholders, Generic targetType) {
+        public <T> T getValue(String key, T defaultValue, boolean resolvePlaceholders, TypeDescription targetType) {
             if (super.containsKey(key))
                 return super.getValue(key, defaultValue, resolvePlaceholders, targetType);
 

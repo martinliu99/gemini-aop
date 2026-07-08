@@ -329,7 +329,8 @@ public interface ObjectFactory extends Closeable {
                     return constructor;
             }
 
-            throw new ObjectsException("Could not resolve constructor of Class '" + clazz.getName() + "' with arguments " + arguments + ".");
+            throw new ObjectsException("Could not resolve constructor of Class '" + clazz.getName() 
+                    + "' with arguments " + Arrays.toString(arguments) + ".");
         }
 
 

@@ -18,6 +18,7 @@ package io.gemini.core.util;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.CharArrayWriter;
+import java.io.Closeable;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -43,9 +44,6 @@ import java.nio.charset.Charset;
  */
 public abstract class IOUtils {
 
-    /**
-     * 
-     */
     private static final String DEFAULT_CHARSET = "UTF-8";
 
     public static final int EOF = -1;
@@ -183,28 +181,17 @@ public abstract class IOUtils {
     }
 
     /**
-     * Closes the given input stream quietly, ignoring any {@link IOException}.
+     * Closes the given closable quietly, ignoring any {@link IOException}.
      *
-     * @param inStream the stream to close (may be {@code null})
+     * @param closable the closable to close (may be {@code null})
      */
-    public static void closeQuietly(InputStream inStream) {
+    public static void closeQuietly(Closeable closable) {
         try {
-            if (inStream != null)
-                inStream.close();
-        } catch (IOException ignored) { /**/ }
+            if (closable != null)
+                closable.close();
+        } catch (IOException ignored) { /* do nothing */ }
     }
 
-    /**
-     * Closes the given output stream quietly, ignoring any {@link IOException}.
-     *
-     * @param outStream the stream to close (may be {@code null})
-     */
-    public static void closeQuietly(OutputStream outStream) {
-        try {
-            if (outStream != null)
-                outStream.close();
-        } catch (IOException ignored) { /**/ }
-    }
 
     /**
      * Writes the given byte array to the specified file path, creating parent directories as needed.
@@ -216,11 +203,9 @@ public abstract class IOUtils {
     public static void saveToFile(byte[] sourceBytes, String targetFile) throws IOException {
         File file = new File(targetFile);
         file.getParentFile().mkdir();
-        OutputStream os = new FileOutputStream(file);
-        try {
+
+        try (OutputStream os = new FileOutputStream(file)) {
             os.write(sourceBytes);
-        } finally {
-            closeQuietly(os);
         }
     }
 
