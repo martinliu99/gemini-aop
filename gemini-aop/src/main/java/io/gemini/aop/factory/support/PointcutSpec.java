@@ -15,14 +15,8 @@
  */
 package io.gemini.aop.factory.support;
 
-import java.util.Map;
-
-import io.gemini.aop.factory.support.AdviceSpec.AspectJAdviceSpec;
-import io.gemini.aop.matcher.ExprPointcut.PointcutParameterMatcher;
 import io.gemini.api.aop.Pointcut;
 import io.gemini.core.util.Assert;
-import net.bytebuddy.description.type.TypeDescription;
-import net.bytebuddy.description.type.TypeDescription.Generic;
 
 /**
  * Describes the pointcut specification for a {@link AdvisorSpec.PointcutAdvisorSpec}.
@@ -65,18 +59,13 @@ public interface PointcutSpec {
      */
     abstract class AbstractBase implements PointcutSpec {
 
-        private final AdviceSpec adviceSpec;
         private final boolean breakCircularity;
 
 
-        public AbstractBase(AdviceSpec adviceSpec, boolean breakCircularity) {
-            this.adviceSpec = adviceSpec;
+        public AbstractBase(boolean breakCircularity) {
             this.breakCircularity = breakCircularity;
         }
 
-        protected AdviceSpec getAdviceSpec() {
-            return this.adviceSpec;
-        }
 
         /**
          * {@inheritDoc}
@@ -110,9 +99,8 @@ public interface PointcutSpec {
             private final Class<? extends Pointcut> pointcutClass;
 
 
-            public Default(AdviceSpec adviceSpec, boolean breakCircularity, 
-                    Class<? extends Pointcut> pointcutClass) {
-                super(adviceSpec, breakCircularity);
+            public Default(boolean breakCircularity, Class<? extends Pointcut> pointcutClass) {
+                super(breakCircularity);
 
                 Assert.notNull(pointcutClass, "'pointcutClass' must not be null.");
                 this.pointcutClass = pointcutClass;
@@ -150,9 +138,8 @@ public interface PointcutSpec {
             private final String pointcutExpression;
 
 
-            public Default(AdviceSpec adviceSpec, boolean breakCircularity, 
-                    String pointcutExpression) {
-                super(adviceSpec, breakCircularity);
+            public Default(boolean breakCircularity, String pointcutExpression) {
+                super(breakCircularity);
 
                 Assert.hasText(pointcutExpression, "'pointcutExpression' must not be empty.");
                 this.pointcutExpression = pointcutExpression;
@@ -181,30 +168,6 @@ public interface PointcutSpec {
          */
         String getPointcutExpression();
 
-        /**
-         * Returns the {@link TypeDescription} of the AspectJ advice class that declares this pointcut.
-         *
-         * @return the advice type description, never {@code null}
-         */
-        TypeDescription getAdviceType();
-
-        /**
-         * Returns a map of pointcut parameter names to their generic types, used for
-         * binding matched join-point values (e.g.{@code argNames}, {@code returning}, {@code throwing}) to
-         * advice method parameters.
-         *
-         * @return map of parameter name to generic type
-         */
-        Map<String, Generic> getPointcutParameterTypes();
-
-        /**
-         * Returns the {@link PointcutParameterMatcher} responsible for validating and binding
-         * pointcut parameter values to the advice method's parameter list.
-         *
-         * @return the pointcut parameter matcher, never {@code null}
-         */
-        PointcutParameterMatcher getPointcutParameterMatcher();
-
 
         /**
          * Default {@link AspectJPointcutSpec} implementation that additionally validates
@@ -215,9 +178,8 @@ public interface PointcutSpec {
             private final String pointcutExpression;
 
 
-            public Default(AspectJAdviceSpec adviceSpec, boolean breakCircularity, 
-                    String pointcutExpression) {
-                super(adviceSpec, breakCircularity);
+            public Default(boolean breakCircularity, String pointcutExpression) {
+                super(breakCircularity);
 
                 this.pointcutExpression = pointcutExpression;
             }
@@ -226,41 +188,8 @@ public interface PointcutSpec {
              * {@inheritDoc}
              */
             @Override
-            protected AspectJAdviceSpec getAdviceSpec() {
-                return (AspectJAdviceSpec) super.getAdviceSpec();
-            }
-
-
-            /**
-             * {@inheritDoc}
-             */
-            @Override
             public String getPointcutExpression() {
                 return this.pointcutExpression;
-            }
-
-            /**
-             * {@inheritDoc}
-             */
-            @Override
-            public TypeDescription getAdviceType() {
-                return super.getAdviceSpec().getDeclaringType();
-            }
-
-            /**
-             * {@inheritDoc}
-             */
-            @Override
-            public Map<String, Generic> getPointcutParameterTypes() {
-                return getAdviceSpec().getPointcutParameterTypes();
-            }
-
-            /**
-             * {@inheritDoc}
-             */
-            @Override
-            public PointcutParameterMatcher getPointcutParameterMatcher() {
-                return getAdviceSpec();
             }
         }
     }

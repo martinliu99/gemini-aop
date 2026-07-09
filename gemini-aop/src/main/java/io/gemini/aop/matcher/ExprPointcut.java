@@ -34,12 +34,10 @@ import org.slf4j.LoggerFactory;
 
 import io.gemini.aspectj.weaver.ExprParser;
 import io.gemini.aspectj.weaver.PointcutParameter;
-import io.gemini.aspectj.weaver.PointcutParameter.NamedPointcutParameter;
 import io.gemini.aspectj.weaver.TypeWorld;
 import io.gemini.core.util.ObjectUtils;
 import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.type.TypeDescription;
-import net.bytebuddy.description.type.TypeDescription.Generic;
 import net.bytebuddy.matcher.ElementMatcher;
 
 /**
@@ -93,15 +91,7 @@ public interface ExprPointcut extends io.gemini.api.aop.Pointcut, ElementMatcher
     @Override
     boolean matches(MethodDescription targetMethod);
 
-    /**
-     * Tests whether the given method is matched by this pointcut, additionally validating
-     * pointcut parameter bindings via the supplied {@code pointcutParameterMatcher}.
-     *
-     * @param targetMethod              the method to test
-     * @param pointcutParameterMatcher  strategy for validating parameter bindings after expression matching
-     * @return {@code true} if the pointcut matches the method and the parameter matcher approves
-     */
-    boolean matches(MethodDescription targetMethod, PointcutParameterMatcher pointcutParameterMatcher);
+//    boolean matches(MethodDescription targetMethod, PointcutParameterMatcher pointcutParameterMatcher);
 
 
     /**
@@ -115,10 +105,10 @@ public interface ExprPointcut extends io.gemini.api.aop.Pointcut, ElementMatcher
          * compatible with the parameter types of the given {@code targetMethod}.
          *
          * @param targetMethod        the method whose parameters are to be validated
-         * @param pointcutParameters  the named pointcut parameters resolved during expression matching
+         * @param pointcutParameters  the pointcut parameters resolved during expression matching
          * @return {@code true} if the parameter bindings are acceptable
          */
-        boolean match(MethodDescription targetMethod, List<NamedPointcutParameter> pointcutParameters);
+        boolean match(MethodDescription targetMethod, List<PointcutParameter> pointcutParameters);
 
 
         /**
@@ -133,7 +123,7 @@ public interface ExprPointcut extends io.gemini.api.aop.Pointcut, ElementMatcher
              * {@inheritDoc}
              */
             @Override
-            public boolean match(MethodDescription targetMethod, List<NamedPointcutParameter> pointcutParameters) {
+            public boolean match(MethodDescription targetMethod, List<PointcutParameter> pointcutParameters) {
                 return true;
             }
         }
@@ -157,8 +147,9 @@ public interface ExprPointcut extends io.gemini.api.aop.Pointcut, ElementMatcher
         private final String pointcutExpression;
         private final Pointcut pointcut;
 
-        private final TypeDescription pointcutDeclarationType;
-        private final Map<String, Generic> pointcutParameters;
+        private final String pointcutDeclaringTypeName;
+        private final Map<String, String> pointcutParameters;
+        private final PointcutParameterMatcher pointcutParameterMatcher;
 
 
         static {
@@ -187,7 +178,7 @@ public interface ExprPointcut extends io.gemini.api.aop.Pointcut, ElementMatcher
          * @param pointcutExpression the AspectJ pointcut expression to parse
          */
         public AspectJExprPointcut(TypeWorld typeWorld, String pointcutExpression) {
-            this(typeWorld, pointcutExpression, null, Collections.emptyMap());
+            this(typeWorld, pointcutExpression, null, Collections.emptyMap(), PointcutParameterMatcher.True.INSTANCE);
         }
 
         /**
@@ -195,20 +186,22 @@ public interface ExprPointcut extends io.gemini.api.aop.Pointcut, ElementMatcher
          *
          * @param typeWorld               the type world used for type resolution and shadow creation
          * @param pointcutExpression      the AspectJ pointcut expression to parse
-         * @param pointcutDeclarationType the type in which the pointcut is declared; may be {@code null}
+         * @param pointcutDeclaringTypeName the type in which the pointcut is declared; may be {@code null}
          * @param pointcutParametes       a map of parameter name to generic type for pointcut parameter binding
          */
         public AspectJExprPointcut(TypeWorld typeWorld, String pointcutExpression,
-                TypeDescription pointcutDeclarationType, Map<String, Generic> pointcutParametes) {
+                String pointcutDeclaringTypeName, Map<String, String> pointcutParametes,
+                PointcutParameterMatcher pointcutParameterMatcher) {
             this.typeWorld = typeWorld;
 
             this.pointcutExpression = pointcutExpression;
-            this.pointcutDeclarationType = pointcutDeclarationType;
+            this.pointcutDeclaringTypeName = pointcutDeclaringTypeName;
             this.pointcutParameters = pointcutParametes;
+            this.pointcutParameterMatcher = pointcutParameterMatcher;
 
             // Build the underlying pointcut expression.
             this.pointcut = ExprParser.INSTANCE.parsePointcutExpr(typeWorld, SUPPORTED_PRIMITIVES, 
-                    pointcutExpression, pointcutDeclarationType, pointcutParameters);
+                    pointcutExpression, pointcutDeclaringTypeName, pointcutParameters);
         }
 
 
@@ -268,17 +261,26 @@ public interface ExprPointcut extends io.gemini.api.aop.Pointcut, ElementMatcher
          */
         @Override
         public boolean matches(MethodDescription targetMethod) {
-            return doMatch(targetMethod, false, PointcutParameterMatcher.True.INSTANCE);
+            return doMatch(targetMethod, false, pointcutParameterMatcher);
         }
 
         /** 
          * {@inheritDoc}
          */
-        @Override
-        public boolean matches(MethodDescription targetMethod, PointcutParameterMatcher pointcutParameterMatcher) {
-            return this.doMatch(targetMethod, false, pointcutParameterMatcher);
-        }
+//        @Override
+//        public boolean matches(MethodDescription targetMethod, PointcutParameterMatcher pointcutParameterMatcher) {
+//            return this.doMatch(targetMethod, false, pointcutParameterMatcher);
+//        }
 
+
+        /**
+         * Tests whether the given method is matched by this pointcut, additionally validating
+         * pointcut parameter bindings via the supplied {@code pointcutParameterMatcher}.
+         *
+         * @param targetMethod              the method to test
+         * @param pointcutParameterMatcher  strategy for validating parameter bindings after expression matching
+         * @return {@code true} if the pointcut matches the method and the parameter matcher approves
+         */
         protected boolean doMatch(MethodDescription targetMethod, 
                 boolean beanHasIntroductions, PointcutParameterMatcher pointcutParameterMatcher) {
             Shadow shadow = typeWorld.makeShadow(targetMethod);
@@ -296,7 +298,7 @@ public interface ExprPointcut extends io.gemini.api.aop.Pointcut, ElementMatcher
             // and there will never be matching subclass at runtime.
             if (matchResult.alwaysTrue()) {
                 return pointcutParameterMatcher.match(targetMethod, 
-                        createParamterBindings(pointcutParameters, exposedState));
+                        createParamterBindings(exposedState) );
             }
             else if (matchResult.alwaysFalse()) {
                 return false;
@@ -316,17 +318,13 @@ public interface ExprPointcut extends io.gemini.api.aop.Pointcut, ElementMatcher
             }
         }
 
-        private List<NamedPointcutParameter> createParamterBindings(
-                Map<String, Generic> pointcutParameters, ExposedState exposedState) {
-            int i = 0;
-            List<NamedPointcutParameter> parameterBindings = new ArrayList<>(pointcutParameters.size());
-            for (Entry<String, Generic> entry : pointcutParameters.entrySet()) {
-                PointcutParameter var = (PointcutParameter) exposedState.vars[i++];
-                if (var == null)
-                    continue;
-
-                parameterBindings.add( 
-                        new PointcutParameter.Default(entry.getKey(), entry.getValue(), var) );
+        private List<PointcutParameter> createParamterBindings(ExposedState exposedState) {
+            int paramCount = exposedState.vars.length;
+            List<PointcutParameter> parameterBindings = new ArrayList<>(paramCount);
+            for (int i = 0; i < paramCount; i++) {
+                PointcutParameter var = (PointcutParameter) exposedState.vars[i];
+                if (var != null)
+                    parameterBindings.add(var);
             }
 
             return parameterBindings;
@@ -346,7 +344,7 @@ public interface ExprPointcut extends io.gemini.api.aop.Pointcut, ElementMatcher
             }
             AspectJExprPointcut otherPc = (AspectJExprPointcut) other;
             return ObjectUtils.equals(this.getPointcutExpression(), otherPc.getPointcutExpression()) &&
-                    ObjectUtils.equals(this.pointcutDeclarationType, otherPc.pointcutDeclarationType) &&
+                    ObjectUtils.equals(this.pointcutDeclaringTypeName, otherPc.pointcutDeclaringTypeName) &&
                     ObjectUtils.equals(this.pointcutParameters, otherPc.pointcutParameters);
         }
 
@@ -356,7 +354,7 @@ public interface ExprPointcut extends io.gemini.api.aop.Pointcut, ElementMatcher
         @Override
         public int hashCode() {
             int hashCode = ObjectUtils.hashCode(this.getPointcutExpression());
-            hashCode = 31 * hashCode + ObjectUtils.hashCode(this.pointcutDeclarationType);
+            hashCode = 31 * hashCode + ObjectUtils.hashCode(this.pointcutDeclaringTypeName);
             hashCode = 31 * hashCode + ObjectUtils.hashCode(this.pointcutParameters);
             return hashCode;
         }
@@ -372,8 +370,8 @@ public interface ExprPointcut extends io.gemini.api.aop.Pointcut, ElementMatcher
             int i = 0;
             if (this.pointcutParameters != null) {
                 sb.append("(");
-                for (Entry<String, Generic> entry : this.pointcutParameters.entrySet()) {
-                    sb.append(entry.getValue().getTypeName());
+                for (Entry<String, String> entry : this.pointcutParameters.entrySet()) {
+                    sb.append(entry.getValue());
                     sb.append(" ");
                     sb.append(entry.getKey());
                     if ((i+1) < pointcutParameters.size()) {

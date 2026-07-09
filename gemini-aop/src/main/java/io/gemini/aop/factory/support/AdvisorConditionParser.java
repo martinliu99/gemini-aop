@@ -25,11 +25,10 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.Set;
 
 import io.gemini.aop.factory.FactoryContext;
 import io.gemini.aop.factory.classloader.AspectClassLoader;
@@ -45,8 +44,6 @@ import io.gemini.core.util.CollectionUtils;
 import io.gemini.core.util.ReflectionUtils;
 import io.gemini.core.util.Throwables;
 import net.bytebuddy.description.annotation.AnnotationDescription;
-import net.bytebuddy.description.annotation.AnnotationList;
-import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 
 /**
@@ -140,16 +137,15 @@ public abstract class AdvisorConditionParser {
      *
      * @param factoryContext the factory context providing class loader, object factory,
      *                       and the pre-loaded conditional/condition class map
-     * @param annotationList the annotations present on the advisor class or method
      * @return a conjunctive {@link ElementMatcher} representing all applicable conditions,
      *         or {@code null} if no conditional annotations are present
      * @throws AopException if a condition class cannot be instantiated or configured
      */
     @SuppressWarnings("unchecked")
-    public static ElementMatcher<MatchingContext> parseAdvisorCondition(FactoryContext factoryContext, 
-            AnnotationList annotationList) throws AopException {
+    public static ElementMatcher.Junction<MatchingContext> parseAdvisorCondition(FactoryContext factoryContext, 
+            AnnotationFinder annotationFinder) throws AopException {
         // find annotated @Conditional from current element
-        Map<Class<? extends Annotation>, Class<?>> conditionalAndConditionClasses = getConditionalAndConditionClasses(factoryContext, annotationList);
+        Map<Class<? extends Annotation>, Class<?>> conditionalAndConditionClasses = getConditionalAndConditionClasses(factoryContext, annotationFinder);
 
         // instantiate condition class and initialize condition instance with annotation attributes
         ObjectFactory objectFactory = factoryContext.getObjectFactory();
@@ -161,19 +157,20 @@ public abstract class AdvisorConditionParser {
             Class<?> conditionClass = entry.getValue();
 
             try {
-                // is annotated with given annotation?
-                if (annotationList.isAnnotationPresent(conditionalClass) == false)
-                    continue;
-
                 // fetch annotation instance, and all attributes
-                Annotation annotation = annotationList.ofType(conditionalClass).prepare(
-                        (Class<? extends Annotation>) classLoader.loadClass(conditionalClass.getTypeName()) ).load();
-                Map<String, Object> attributeValues = conditionalClass.getTypeName().equals(Conditional.class.getName())
-                        ? Collections.emptyMap() : ReflectionUtils.getAttributeValues(annotation);
+                AnnotationDescription annotationDescription = annotationFinder.getAnnotation(conditionalClass);
+                if (annotationDescription == null) continue;
 
-                // create condition class instance with annotation attributes
+                Annotation annotation = annotationDescription
+                        .prepare((Class<? extends Annotation>) classLoader.loadClass(conditionalClass.getTypeName()) )
+                        .load();
+
+                //                Map<String, Object> attributeValues = conditionalClass.getTypeName().equals(Conditional.class.getName())
+//                        ? Collections.emptyMap() : ReflectionUtils.getAttributeValues(annotationDescription, annotation);
+
+                // create condition class instance with annotation
                 conditions.add( 
-                        (ElementMatcher<? super MatchingContext>) objectFactory.createObject(conditionClass, attributeValues));
+                        (ElementMatcher<? super MatchingContext>) objectFactory.createObject(conditionClass, annotation));
             } catch (Throwable t) {
                 Throwables.throwIfRequired(t);
 
@@ -185,9 +182,9 @@ public abstract class AdvisorConditionParser {
     }
 
     private static Map<Class<? extends Annotation>, Class<?>> getConditionalAndConditionClasses(
-            FactoryContext factoryContext, AnnotationList annotationList) {
+            FactoryContext factoryContext, AnnotationFinder annotationFinder) {
         // find annotated @Conditional from current element
-        AnnotationDescription conditionalType = annotationList.ofType(TypeDescription.ForLoadedType.of(Conditional.class) );
+        AnnotationDescription conditionalType = annotationFinder.getAnnotation(Conditional.class);
         if (conditionalType == null) 
             return factoryContext.getConditionalAndConditionClasses();
 

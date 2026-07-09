@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 
 import io.gemini.aop.factory.AdvisorContext;
 import io.gemini.aop.factory.FactoryContext;
+import io.gemini.aop.factory.support.AdviceSpec.AspectJAdviceSpec;
 import io.gemini.aop.factory.support.AdvisorSpec.PointcutAdvisorSpec;
 import io.gemini.aop.factory.support.PointcutSpec.AspectJPointcutSpec;
 import io.gemini.aop.factory.support.PointcutSpec.ExprPointcutSpec;
@@ -70,7 +71,6 @@ public interface PointcutCreator {
      */
     Pointcut create(AdvisorContext advisorContext, PointcutAdvisorSpec advisorSpec);
 
-
     /**
      * Delegates to all registered {@link PointcutCreator} instances in order,
      * and returns the first non-null result.
@@ -83,10 +83,7 @@ public interface PointcutCreator {
 
         public Compound(FactoryContext factoryContext, AdviceCreator adviceCreator) {
             List<? extends PointcutCreator> pointcutCreators = factoryContext.getObjectFactory()
-                    .createObjectsImplementing(PointcutCreator.class, 
-                            false, 
-                            "adviceCreator", adviceCreator
-                    );
+                    .createObjectsImplementing(PointcutCreator.class, false, adviceCreator);
             this.pointcutCreators = pointcutCreators == null 
                     ? Collections.emptyList() : pointcutCreators;
 
@@ -126,7 +123,7 @@ public interface PointcutCreator {
      * Abstract base providing common pointcut creation logic: spec class filtering,
      * expression parsing error handling, and pointcut decoration with advice method matchers.
      */
-    abstract class AbstractBase<PS extends PointcutSpec, P extends Pointcut> implements PointcutCreator {
+    abstract class AbstractBase<AS extends AdviceSpec, PS extends PointcutSpec, P extends Pointcut> implements PointcutCreator {
 
         private final AdviceCreator adviceCreator;
 
@@ -135,10 +132,8 @@ public interface PointcutCreator {
             this.adviceCreator = adviceCreator;
         }
 
-        protected AdviceCreator getAdviceCreator() {
-            return adviceCreator;
-        }
 
+        protected abstract boolean supports(PointcutAdvisorSpec advisorSpec);
 
         /**
          * {@inheritDoc}
@@ -146,17 +141,15 @@ public interface PointcutCreator {
         @SuppressWarnings("unchecked")
         @Override
         public Pointcut create(AdvisorContext advisorContext, PointcutAdvisorSpec advisorSpec) {
-            Class<? extends PointcutSpec> pointcutSpecClass = doGetSpecClass();
+            AdviceSpec adviceSpec = advisorSpec.getAdviceSpec();
             PointcutSpec pointcutSpec = advisorSpec.getPointcutSpec();
-            if (pointcutSpec == null)
-                System.out.println();
-            if (pointcutSpecClass == null || pointcutSpecClass.isAssignableFrom(pointcutSpec.getClass()) == false)
+            if (advisorSpec == null || adviceSpec == null || pointcutSpec == null || supports(advisorSpec) == false)
                 return null;
 
             // 1.try to create Pointcut
-            P originPointcut = null;
+            P pointcut = null;
             try {
-                originPointcut = doCreatePointcut(advisorContext, (PS) pointcutSpec);
+                pointcut = doCreatePointcut(advisorContext, (AS) adviceSpec, (PS) pointcutSpec);
             } catch (IllegalSpecException e) {
                 throw e;
             } catch (ExprParser.ExprParseException e) {
@@ -215,15 +208,10 @@ public interface PointcutCreator {
                 }
             }
 
-            if (originPointcut == null) 
+            if (pointcut == null) 
                 return null;
 
-
-            // 2.decorate Pointcut
-            Pointcut pointcut = doDecoratePointcut(advisorContext, advisorSpec, (PS) pointcutSpec, originPointcut);
-
-
-            // 3.validate Pointcut
+            // 2.validate Pointcut
             try {
                 if (this.doValidatePointcut(advisorContext, pointcut) == false)
                     return null;
@@ -242,18 +230,10 @@ public interface PointcutCreator {
                     );
             }
 
-            return pointcut;
-        }
-
-        protected abstract Class<? extends PointcutSpec> doGetSpecClass();
-
-        protected abstract P doCreatePointcut(AdvisorContext advisorContext, PS pointcutSpec);
-
-        protected Pointcut doDecoratePointcut(AdvisorContext advisorContext, PointcutAdvisorSpec advisorSpec, 
-                PS pointcutSpec, P pointcut) {
+            // 3.decorate Pointcut
             ElementMatcher<MethodDescription> methodMatcher = pointcut.getMethodMatcher();
-            ElementMatcher<MethodDescription> adviceMethodMatcher = adviceCreator
-                    .createAdviceMatcher(advisorContext, advisorSpec);
+            ElementMatcher<MethodDescription> adviceMethodMatcher = adviceCreator.createAdviceMatcher(
+                    advisorContext, adviceSpec);
             if (adviceMethodMatcher != null)
                 // match [methodMatcher, adviceMethodMatcher] sequentially
                 methodMatcher = new ElementMatcher.Junction.Conjunction<MethodDescription>(
@@ -262,6 +242,8 @@ public interface PointcutCreator {
             return new Pointcut.Default( 
                     pointcut.getTypeMatcher(), methodMatcher);
         }
+
+        protected abstract P doCreatePointcut(AdvisorContext advisorContext, AS adviceSpec, PS pointcutSpec);
 
         protected boolean doValidatePointcut(AdvisorContext advisorContext, Pointcut pointcut) {
             return true;
@@ -273,25 +255,26 @@ public interface PointcutCreator {
      * Instantiates a {@link io.gemini.api.aop.Pointcut} class referenced by a
      * {@link io.gemini.aop.factory.support.PointcutSpec.PojoPointcutSpec}.
      */
-    class PojoPointcutCreator extends AbstractBase<PojoPointcutSpec, Pointcut> {
+    class PojoPointcutCreator extends AbstractBase<AdviceSpec, PojoPointcutSpec, Pointcut> {
 
         public PojoPointcutCreator(AdviceCreator adviceCreator) {
             super(adviceCreator);
         }
 
+
         /**
          * {@inheritDoc}
          */
         @Override
-        protected Class<? extends PointcutSpec> doGetSpecClass() {
-            return PojoPointcutSpec.class;
+        protected boolean supports(PointcutAdvisorSpec advisorSpec) {
+            return PojoPointcutSpec.class.isAssignableFrom( advisorSpec.getPointcutSpec().getClass() );
         }
 
         /**
          * {@inheritDoc}
          */
         @Override
-        protected Pointcut doCreatePointcut(AdvisorContext advisorContext, PojoPointcutSpec pointcutSpec) {
+        protected Pointcut doCreatePointcut(AdvisorContext advisorContext, AdviceSpec adviceSpec, PojoPointcutSpec pointcutSpec) {
             return advisorContext.getObjectFactory().createObject(
                     pointcutSpec.getPointcutClass() );
         }
@@ -302,7 +285,7 @@ public interface PointcutCreator {
      * Creates an {@link io.gemini.aop.matcher.ExprPointcut.AspectJExprPointcut} from an
      * {@link io.gemini.aop.factory.support.PointcutSpec.ExprPointcutSpec} expression string.
      */
-    class ExprPointcutCreator extends AbstractBase<ExprPointcutSpec, Pointcut> {
+    class ExprPointcutCreator extends AbstractBase<AdviceSpec, ExprPointcutSpec, Pointcut> {
 
         public ExprPointcutCreator(AdviceCreator adviceCreator) {
             super(adviceCreator);
@@ -312,15 +295,15 @@ public interface PointcutCreator {
          * {@inheritDoc}
          */
         @Override
-        protected Class<? extends PointcutSpec> doGetSpecClass() {
-            return ExprPointcutSpec.class;
+        protected boolean supports(PointcutAdvisorSpec advisorSpec) {
+            return ExprPointcutSpec.class.isAssignableFrom( advisorSpec.getPointcutSpec().getClass() );
         }
 
         /**
          * {@inheritDoc}
          */
         @Override
-        protected Pointcut doCreatePointcut(AdvisorContext advisorContext, ExprPointcutSpec pointcutSpec) {
+        protected Pointcut doCreatePointcut(AdvisorContext advisorContext, AdviceSpec adviceSpec, ExprPointcutSpec pointcutSpec) {
             String pointcutExpression = pointcutSpec.getPointcutExpression();
             if (StringUtils.hasText(pointcutExpression) == false) {
                 return null;
@@ -339,7 +322,7 @@ public interface PointcutCreator {
      * Creates an {@link io.gemini.aop.matcher.ExprPointcut.AspectJExprPointcut} with parameter
      * binding from an {@link io.gemini.aop.factory.support.PointcutSpec.AspectJPointcutSpec}.
      */
-    class AspectJPointcutCreator extends AbstractBase<AspectJPointcutSpec, ExprPointcut> {
+    class AspectJPointcutCreator extends AbstractBase<AspectJAdviceSpec.Loaded, AspectJPointcutSpec, ExprPointcut> {
 
         public AspectJPointcutCreator(AdviceCreator adviceCreator) {
             super(adviceCreator);
@@ -349,15 +332,17 @@ public interface PointcutCreator {
          * {@inheritDoc}
          */
         @Override
-        protected Class<? extends PointcutSpec> doGetSpecClass() {
-            return AspectJPointcutSpec.class;
+        protected boolean supports(PointcutAdvisorSpec advisorSpec) {
+            return AspectJPointcutSpec.class.isAssignableFrom( advisorSpec.getPointcutSpec().getClass() )
+                    && AspectJAdviceSpec.Loaded.class.isAssignableFrom( advisorSpec.getAdviceSpec().getClass() );
         }
 
         /**
          * {@inheritDoc}
          */
         @Override
-        protected ExprPointcut doCreatePointcut(AdvisorContext advisorContext, AspectJPointcutSpec pointcutSpec) {
+        protected ExprPointcut doCreatePointcut(AdvisorContext advisorContext, AspectJAdviceSpec.Loaded adviceSpec, 
+                AspectJPointcutSpec pointcutSpec) {
             String pointcutExpression = pointcutSpec.getPointcutExpression();
             if (StringUtils.hasText(pointcutExpression) == false) {
                 return null;
@@ -369,33 +354,9 @@ public interface PointcutCreator {
 
             return new AspectJExprPointcut(advisorContext.getTypeWorld(), 
                     pointcutExpression,
-                    pointcutSpec.getAdviceType(), 
-                    pointcutSpec.getPointcutParameterTypes());
-        }
-
-        /** 
-         * {@inheritDoc}
-         */
-        @Override
-        protected Pointcut doDecoratePointcut(AdvisorContext advisorContext, PointcutAdvisorSpec advisorSpec, 
-                AspectJPointcutSpec pointcutSpec, ExprPointcut pointcut) {
-            ElementMatcher<MethodDescription> methodMatcher = pointcut.getMethodMatcher();
-            ElementMatcher<MethodDescription> adviceMethodMatcher = getAdviceCreator()
-                    .createAdviceMatcher(advisorContext, advisorSpec);
-            if (adviceMethodMatcher != null)
-                // match [methodMatcher, adviceMethodMatcher] sequentially
-                methodMatcher = new ElementMatcher.Junction.Conjunction<MethodDescription>(
-                        new ElementMatcher<MethodDescription>() {
-                            @Override
-                            public boolean matches(MethodDescription targetMethod) {
-                                return pointcut.matches(targetMethod, pointcutSpec.getPointcutParameterMatcher());
-                            }
-                        },
-                        adviceMethodMatcher
-                );
-
-
-            return new Pointcut.Default(pointcut.getTypeMatcher(), methodMatcher);
+                    adviceSpec.getDeclaringTypeName(), 
+                    adviceSpec.getPointcutParameters(),
+                    adviceSpec);
         }
     }
 }

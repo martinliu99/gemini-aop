@@ -40,13 +40,11 @@ import io.gemini.api.aop.annotation.EnablePerInstance;
 import io.gemini.core.object.ClassScanner;
 import io.gemini.core.util.Assert;
 import io.gemini.core.util.CollectionUtils;
-import io.gemini.core.util.MethodUtils;
 import io.gemini.core.util.StringUtils;
 import io.gemini.core.util.Throwables;
 import io.github.classgraph.ClassInfo;
 import net.bytebuddy.description.annotation.AnnotationDescription;
 import net.bytebuddy.description.annotation.AnnotationList;
-import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 
@@ -310,7 +308,8 @@ public interface AdvisorSpecScanner {
                     advisorName = adviceClassName;
 
                 // parse Condition
-                ElementMatcher<MatchingContext> condition = doParseCondition(factoryContext, annotations);
+                ElementMatcher<MatchingContext> condition = AdvisorConditionParser.parseAdvisorCondition(
+                        factoryContext, new AnnotationFinder.Default(annotations));
 
                 // parse AdviceSpec
                 AdviceSpec adviceSpec = doParseAdviceSpec(factoryContext, advisorName, decalringType);
@@ -346,11 +345,6 @@ public interface AdvisorSpecScanner {
                     );
                 return null;
             }
-        }
-
-        protected ElementMatcher<MatchingContext> doParseCondition(FactoryContext factoryContext, AnnotationList annotationList) {
-            return AdvisorConditionParser.parseAdvisorCondition(
-                    factoryContext, annotationList);
         }
 
         protected AdviceSpec doParseAdviceSpec(FactoryContext factoryContext, 
@@ -483,51 +477,33 @@ public interface AdvisorSpecScanner {
                     return null;
 
                 AnnotationList adviceTypeAnnotations = adviceType.getDeclaredAnnotations();
-                AnnotationDescription typeAdvisorNameAnnotation = adviceTypeAnnotations.ofType(AdvisorName.class);
-                AnnotationDescription typePerInstanceAnnotation = adviceTypeAnnotations.ofType(EnablePerInstance.class);
-                AnnotationDescription typeOrderAnnotation = adviceTypeAnnotations.ofType(Order.class);
-
-                ElementMatcher<MatchingContext> adviceTypeCondition = doParseCondition(factoryContext, adviceTypeAnnotations);
+                ElementMatcher.Junction<MatchingContext> adviceTypeCondition = AdvisorConditionParser.parseAdvisorCondition(
+                        factoryContext, new AnnotationFinder.Default(adviceTypeAnnotations));
 
                 List<PointcutAdvisorSpec> pointcutAdvisorSpecs = new ArrayList<>(adviceSpecs.size());
                 for (AdviceSpec adviceSpec : adviceSpecs) {
                     AspectJAdviceSpec aspectJAdviceSpec = (AspectJAdviceSpec) adviceSpec;
-                    MethodDescription adviceMethod = aspectJAdviceSpec.getAdviceMethod();
                     try {
-                        AnnotationList adviceMethodAnnotations = adviceMethod.getDeclaredAnnotations();
-
                         // parse advisor name
-                        AnnotationDescription advisorNameAnnotation = adviceMethodAnnotations.ofType(AdvisorName.class);
-                        if (advisorNameAnnotation == null)
-                            advisorNameAnnotation = typeAdvisorNameAnnotation;
-
-                        String advisorName = aspectJAdviceSpec.getAdviceClassName();
-                        if (advisorNameAnnotation != null)
-                            advisorName = advisorNameAnnotation.getValue("advisorName").resolve(String.class).trim();
+                        AnnotationDescription advisorNameAnnotation = adviceSpec.getAnnotation(AdvisorName.class);
+                        String advisorName = advisorNameAnnotation != null
+                                ? advisorName = advisorNameAnnotation.getValue("advisorName").resolve(String.class).trim()
+                                : aspectJAdviceSpec.getAdviceClassName();
 
                         // merge method level and class level condition definition
-                        ElementMatcher<MatchingContext> condition = AdvisorConditionParser.parseAdvisorCondition(
-                                factoryContext, adviceMethodAnnotations);
+                        ElementMatcher.Junction<MatchingContext> condition = AdvisorConditionParser.parseAdvisorCondition(factoryContext, adviceSpec);
                         if (condition == null)
                             condition = adviceTypeCondition;
                         else if (adviceTypeCondition != null)
-                            condition = new ElementMatcher.Junction.Conjunction<>(
-                                    adviceTypeCondition, condition);
+                            condition = adviceTypeCondition.and(condition);
 
                         // merge method level and class level order definition
-                        AnnotationDescription perInstanceAnnotation = adviceMethodAnnotations.ofType(EnablePerInstance.class);
-                        if (perInstanceAnnotation == null)
-                            perInstanceAnnotation = typePerInstanceAnnotation;
+                        boolean perInstance = adviceSpec.getAnnotation(EnablePerInstance.class) != null;
 
-                        boolean perInstance = perInstanceAnnotation != null;
-
-                        AnnotationDescription orderAnnotation = adviceMethodAnnotations.ofType(Order.class);
-                        if (orderAnnotation == null)
-                            orderAnnotation = typeOrderAnnotation;
-
-                        int order = Order.LOWEST_PRECEDENCE;
-                        if (orderAnnotation != null)
-                            order = orderAnnotation.getValue("value").resolve(Integer.class);
+                        AnnotationDescription orderAnnotation = adviceSpec.getAnnotation(Order.class);
+                        int order = orderAnnotation != null
+                                ? order = orderAnnotation.getValue("value").resolve(Integer.class)
+                                : Order.LOWEST_PRECEDENCE;
 
                         PointcutSpec pointcutSpec = getPointcutSpecParser().parse(factoryContext, aspectJAdviceSpec);
                         if (pointcutSpec == null)
@@ -543,11 +519,8 @@ public interface AdvisorSpecScanner {
                         if (LOGGER.isWarnEnabled())
                             LOGGER.warn("Could not parse AdvisorSpec. \n"
                                     + "  DeclaringType: {} \n"
-                                    + "  AdviceMethod: {} \n" 
                                     + "  Error reason: {} \n", 
-                                    adviceSpec.getDeclaringType().getTypeName(), 
-                                    MethodUtils.getMethodSignature(adviceMethod),
-                                    null,
+                                    adviceSpec.getDeclaringTypeName(), 
                                     e.getMessage(),
                                     e
                             );

@@ -162,7 +162,6 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
 
         // 2.filter type by ClassLoaderMatcher
         long startedAt = System.nanoTime();
-
         boolean targetClassLoaderAccepted = weaverContext.acceptTargetClassLoader(targetClassLoader);
         TypeMetrics typeMetrics = aopContext.getAopMetrics().createTypeMetrics(
                 targetClassLoaderAccepted ? targetClassLoader : AopMetrics.REJECTED_CLASS_LOADER, targetTypeName, startedAt);

@@ -99,7 +99,7 @@ enum AdviceClassGenerator {
     }
 
     @SuppressWarnings("unchecked")
-    public DynamicType.Unloaded<? extends Advice> make(AspectJAdviceSpec adviceSpec, boolean autoComputeAsm) {
+    public DynamicType.Unloaded<? extends Advice> make(AspectJAdviceSpec.Loaded adviceSpec, boolean autoComputeAsm) {
         AspectJAdviceKind adviceKind = adviceSpec.getAdviceKind();
 
         // 1.define class
@@ -183,14 +183,14 @@ enum AdviceClassGenerator {
         private static final MethodDescription.InDefinedShape GET_THROWING_METHOD = MUTABLE_JOINPOINT_TYPE.getDeclaredMethods().filter(named("getThrowing")).getOnly();
 
 
-        private final AspectJAdviceSpec adviceSpec;
+        private final AspectJAdviceSpec.Loaded adviceSpec;
 
 
         /**
          * Create AspectJAdviceMethodImplementation with given AspectJAdviceSpec
          * @param adviceSpec AspectJAdviceSpec
          */
-        public AspectJAdviceMethodImplementation(AspectJAdviceSpec adviceSpec) {
+        public AspectJAdviceMethodImplementation(AspectJAdviceSpec.Loaded adviceSpec) {
             this.adviceSpec = adviceSpec;
         }
 
@@ -217,15 +217,13 @@ enum AdviceClassGenerator {
         public Size apply(MethodVisitor methodVisitor, Context implementationContext, 
                 MethodDescription instrumentedMethod) {
             TypeDescription instrumentedType = instrumentedMethod.getDeclaringType().asErasure();
-            AspectJAdviceKind adviceKind = adviceSpec.getAdviceKind();
-            MethodDescription adviceMethod = adviceSpec.getAdviceMethod();
-            Map<String, NamedPointcutParameter> namedPointcutParameters = adviceSpec.getNamedPointcutParameters();
 
             int localVariableSize = instrumentedMethod.getStackSize();
             int operandsStackSize = 0;
 
             // 1.decide AfterReturning or AfterThrowing Advice invocation
             final Label nullCheck = new Label();
+            AspectJAdviceKind adviceKind = adviceSpec.getAdviceKind();
             if (adviceKind.isAfterReturning() == true || adviceKind.isAfterThrowing() == true) {
                 methodVisitor.visitVarInsn(Opcodes.ALOAD, PARAM_INDEX1_MUTABLE_JOINPOINT);
                 methodVisitor.visitMethodInsn(Opcodes.INVOKEINTERFACE, MUTABLE_JOINPOINT_TYPE.getInternalName(), 
@@ -242,6 +240,7 @@ enum AdviceClassGenerator {
 
             // 2.declare and assign argument local variable
             // Object[] arguments = joinpoint.getArguments()
+            Map<String, NamedPointcutParameter> namedPointcutParameters = adviceSpec.getNamedPointcutParameters();
             int argumentsVariableOffset = -1;
             if (namedPointcutParameters.size() > 0) {
                 methodVisitor.visitVarInsn(Opcodes.ALOAD, PARAM_INDEX1_MUTABLE_JOINPOINT);
@@ -256,6 +255,7 @@ enum AdviceClassGenerator {
             // 3.invoke AspectJAdvice method
             // invoke delegatee.method(joinpoint, ...)
             // 3.1.push target field for non-static method
+            MethodDescription adviceMethod = adviceSpec.getAdviceMethod();
             if (adviceMethod.isStatic() == false) {
                 methodVisitor.visitVarInsn(Opcodes.ALOAD, PARAM_INDEX0_THIS_OBJECT);
 

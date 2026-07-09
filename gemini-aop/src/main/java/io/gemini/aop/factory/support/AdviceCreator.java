@@ -46,7 +46,6 @@ import io.gemini.core.util.ClassUtils;
 import io.gemini.core.util.ReflectionUtils;
 import io.gemini.core.util.Throwables;
 import net.bytebuddy.description.method.MethodDescription;
-import net.bytebuddy.description.method.ParameterDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 
 /**
@@ -75,7 +74,7 @@ public interface AdviceCreator {
      *
      * @return the advice matcher for this advice spec
      */
-    ElementMatcher<MethodDescription> createAdviceMatcher(AdvisorContext advisorContext, AdvisorSpec advisorSpec);
+    AdviceMatcher createAdviceMatcher(AdvisorContext advisorContext, AdviceSpec adviceSpec);
 
     /**
      * Loads and returns the {@link io.gemini.api.aop.Advice} class described by the given
@@ -123,9 +122,9 @@ public interface AdviceCreator {
          * {@inheritDoc}
          */
         @Override
-        public ElementMatcher<MethodDescription> createAdviceMatcher(AdvisorContext advisorContext, AdvisorSpec advisorSpec) {
+        public AdviceMatcher createAdviceMatcher(AdvisorContext advisorContext, AdviceSpec adviceSpec) {
             for (AdviceCreator adviceCreator : adviceCreators) {
-                ElementMatcher<MethodDescription> adviceMatcher = adviceCreator.createAdviceMatcher(advisorContext, advisorSpec);
+                AdviceMatcher adviceMatcher = adviceCreator.createAdviceMatcher(advisorContext, adviceSpec);
                 if (adviceMatcher != null)
                     return adviceMatcher;
             }
@@ -215,15 +214,14 @@ public interface AdviceCreator {
          */
         @SuppressWarnings("unchecked")
         @Override
-        public ElementMatcher<MethodDescription> createAdviceMatcher(AdvisorContext advisorContext, AdvisorSpec advisorSpec) {
-            if (advisorSpec == null || advisorSpec.getAdviceSpec() == null ||  supports(advisorSpec.getAdviceSpec()) == false)
+        public AdviceMatcher createAdviceMatcher(AdvisorContext advisorContext, AdviceSpec adviceSpec) {
+            if (adviceSpec == null || supports(adviceSpec) == false)
                 return null;
 
-            return doCreateAdviceMatcher(advisorContext, advisorSpec, (A) advisorSpec.getAdviceSpec());
+            return doCreateAdviceMatcher(advisorContext, (A) adviceSpec);
         }
 
-        protected abstract ElementMatcher<MethodDescription> doCreateAdviceMatcher(AdvisorContext advisorContext,
-                AdvisorSpec advisorSpec, A adviceSpec);
+        protected abstract AdviceMatcher doCreateAdviceMatcher(AdvisorContext advisorContext, A adviceSpec);
 
         /**
          * {@inheritDoc}
@@ -254,7 +252,8 @@ public interface AdviceCreator {
             }
         }
 
-        protected abstract Class<? extends Advice> doLoadAdviceClass(AdvisorContext advisorContext, AdvisorSpec advisorSpec, A adviceSpec);
+        protected abstract Class<? extends Advice> doLoadAdviceClass(AdvisorContext advisorContext, 
+                AdvisorSpec advisorSpec, A adviceSpec);
 
 
         protected Class<? extends Advice> loadClass(AdvisorContext advisorContext, 
@@ -342,22 +341,24 @@ public interface AdviceCreator {
      * (classes implementing {@link io.gemini.api.aop.Advice.Before}, {@link io.gemini.api.aop.Advice.After},
      * or {@link io.gemini.api.aop.Advice.Around}).
      */
-    class PojoAdviceCreator extends AbstractBase<PojoAdviceSpec> {
+    class PojoAdviceCreator extends AbstractBase<PojoAdviceSpec.Loaded> {
 
         /** 
          * {@inheritDoc}
          */
         @Override
         protected boolean supports(AdviceSpec adviceSpec) {
-            return PojoAdviceSpec.class.isAssignableFrom(adviceSpec.getClass());
+            return PojoAdviceSpec.Loaded.class.isAssignableFrom(adviceSpec.getClass());
         }
 
         /** 
          * {@inheritDoc}
          */
         @Override
-        protected ElementMatcher<MethodDescription> doCreateAdviceMatcher(AdvisorContext advisorContext,
-                AdvisorSpec advisorSpec, PojoAdviceSpec adviceSpec) {
+        protected AdviceMatcher doCreateAdviceMatcher(AdvisorContext advisorContext, PojoAdviceSpec.Loaded adviceSpec) {
+            if (adviceSpec.getJoinpointTypeArgumentTypes() == null)
+                return null;
+
             return new AdviceMatcher.PojoAdviceMatcher(adviceSpec);
         }
 
@@ -366,7 +367,7 @@ public interface AdviceCreator {
          */
         @Override
         protected Class<? extends Advice> doLoadAdviceClass(AdvisorContext advisorContext,
-                AdvisorSpec advisorSpec, PojoAdviceSpec adviceSpec) {
+                AdvisorSpec advisorSpec, PojoAdviceSpec.Loaded adviceSpec) {
             // try to load advice class
             String advisorName = advisorSpec.getAdvisorName();
             Class<? extends Advice> adviceClass = loadClass(advisorContext, advisorName,
@@ -384,22 +385,21 @@ public interface AdviceCreator {
      * for an AspectJ advice method using {@link AdviceClassGenerator}.
      */
 //    @NoScanning
-    class AspectJAdviceCreator extends AbstractBase<AspectJAdviceSpec> {
+    class AspectJAdviceCreator extends AbstractBase<AspectJAdviceSpec.Loaded> {
 
         /** 
          * {@inheritDoc}
          */
         @Override
         protected boolean supports(AdviceSpec adviceSpec) {
-            return AspectJAdviceSpec.class.isAssignableFrom(adviceSpec.getClass());
+            return AspectJAdviceSpec.Loaded.class.isAssignableFrom(adviceSpec.getClass());
         }
 
         /** 
          * {@inheritDoc}
          */
         @Override
-        protected ElementMatcher<MethodDescription> doCreateAdviceMatcher(AdvisorContext advisorContext,
-                AdvisorSpec advisorSpec, AspectJAdviceSpec adviceSpec) {
+        protected AdviceMatcher doCreateAdviceMatcher(AdvisorContext advisorContext, AspectJAdviceSpec.Loaded adviceSpec) {
             return new AdviceMatcher.AspectJAdviceMatcher(adviceSpec);
         }
 
@@ -409,7 +409,7 @@ public interface AdviceCreator {
         @SuppressWarnings("unchecked")
         @Override
         protected Class<? extends Advice> doLoadAdviceClass(AdvisorContext advisorContext, 
-                AdvisorSpec advisorSpec, AspectJAdviceSpec adviceSpec) {
+                AdvisorSpec advisorSpec, AspectJAdviceSpec.Loaded adviceSpec) {
             long startedAt = System.nanoTime();
 
             ClassLoader aspectClassLoader = advisorContext.getClassLoader();
@@ -424,7 +424,7 @@ public interface AdviceCreator {
                 }
 
                 Class<?> aspectJClass = this.loadClass(advisorContext, advisorName, 
-                        adviceSpec, adviceSpec.getDeclaringType().getTypeName());
+                        adviceSpec, adviceSpec.getDeclaringTypeName());
 
                 Class<? extends Advice> adviceClass = adviceSpec.getUnloadedAdviceClass()
                         .load(aspectClassLoader, ClassLoadingStrategySelector.Default.SINGLETON.select(aspectJClass))
@@ -446,7 +446,7 @@ public interface AdviceCreator {
                             + "  ClassLoader: {} \n"
                             + "  Error reason: {} \n", 
                             advisorName, 
-                            adviceSpec.getDeclaringType(), 
+                            adviceSpec.getDeclaringTypeName(), 
                             advisorContext.getTargetClassLoaderName(), 
                             e.getMessage(),
                             e
@@ -461,12 +461,12 @@ public interface AdviceCreator {
          */
         @Override
         protected Advice doCreateInstance(AdvisorContext advisorContext, AdvisorSpec advisorSpec, 
-                AspectJAdviceSpec adviceSpec,  Class<? extends Advice> adviceClass) {
+                AspectJAdviceSpec.Loaded adviceSpec,  Class<? extends Advice> adviceClass) {
             String advisorName = advisorSpec.getAdvisorName();
             try {
                 // load AspectJ class
                 Class<?> aspectJClass = this.loadClass(advisorContext, advisorName, 
-                        adviceSpec, adviceSpec.getDeclaringType().getTypeName());
+                        adviceSpec, adviceSpec.getDeclaringTypeName());
 
                 Constructor<?> adviceConstructor = adviceClass.getConstructor(aspectJClass);
                 ReflectionUtils.makeAccessible(adviceClass, adviceConstructor);
@@ -499,22 +499,21 @@ public interface AdviceCreator {
      * instead of bytecode generation. Currently disabled ({@code @NoScanning}).
      */
     @NoScanning
-    class AspectJAdviceCreator2 extends AbstractBase<AspectJAdviceSpec> {
+    class AspectJAdviceCreator2 extends AbstractBase<AspectJAdviceSpec.Loaded> {
 
         /** 
          * {@inheritDoc}
          */
         @Override
         protected boolean supports(AdviceSpec adviceSpec) {
-            return AspectJAdviceSpec.class.isAssignableFrom(adviceSpec.getClass());
+            return AspectJAdviceSpec.Loaded.class.isAssignableFrom(adviceSpec.getClass());
         }
 
         /** 
          * {@inheritDoc}
          */
         @Override
-        protected ElementMatcher<MethodDescription> doCreateAdviceMatcher(AdvisorContext advisorContext,
-                AdvisorSpec advisorSpec, AspectJAdviceSpec adviceSpec) {
+        protected AdviceMatcher doCreateAdviceMatcher(AdvisorContext advisorContext, AspectJAdviceSpec.Loaded adviceSpec) {
             return new AdviceMatcher.AspectJAdviceMatcher(adviceSpec);
         }
 
@@ -523,7 +522,7 @@ public interface AdviceCreator {
          */
         @Override
         protected Class<? extends Advice> doLoadAdviceClass(AdvisorContext advisorContext,
-                AdvisorSpec advisorSpec, AspectJAdviceSpec adviceSpec) {
+                AdvisorSpec advisorSpec, AspectJAdviceSpec.Loaded adviceSpec) {
             AspectJAdviceKind adviceKind = adviceSpec.getAdviceKind();
             if (adviceKind == AspectJAdviceKind.BEFORE)
                 return BeforeAdviceAdapter.class;
@@ -536,12 +535,12 @@ public interface AdviceCreator {
          */
         @Override
         protected Advice doCreateInstance(AdvisorContext advisorContext, AdvisorSpec advisorSpec, 
-                AspectJAdviceSpec adviceSpec,  Class<? extends Advice> adviceClass) {
+                AspectJAdviceSpec.Loaded adviceSpec,  Class<? extends Advice> adviceClass) {
             String advisorName = advisorSpec.getAdvisorName();
             try {
                 // load AspectJ class
                 Class<?> aspectJClass = this.loadClass(advisorContext, advisorName, 
-                        adviceSpec, adviceSpec.getDeclaringType().getTypeName());
+                        adviceSpec, adviceSpec.getDeclaringTypeName());
                 Object aspectJObject = advisorContext.getObjectFactory().createObject(aspectJClass);
 
                 AspectJAdviceKind adviceKind = adviceSpec.getAdviceKind();
@@ -574,32 +573,30 @@ public interface AdviceCreator {
          */
         static abstract class AbstractAdapter extends Advice.AbstractBase {
 
-            private final AspectJAdviceSpec adviceSpec;
+            private final AspectJAdviceSpec.Loaded adviceClassSpec;
             private final Object delegate;
 
-            public AbstractAdapter(AspectJAdviceSpec adviceSpec, Object delegate) 
+            public AbstractAdapter(AspectJAdviceSpec.Loaded adviceClassSpec, Object delegate) 
                     throws ClassNotFoundException, NoSuchMethodException, IllegalAccessException {
-                this.adviceSpec = adviceSpec;
+                this.adviceClassSpec = adviceClassSpec;
                 this.delegate = delegate;
-            }
-
-            public AspectJAdviceSpec getAdviceSpec() {
-                return adviceSpec;
             }
 
             public Object getDelegate() {
                 return delegate;
             }
 
-            protected MethodHandle getAdviceMethod(AspectJAdviceSpec adviceSpec, Class<?> clazz) 
+            protected MethodHandle getAdviceMethod(AspectJAdviceSpec.Loaded adviceSpec, Class<?> clazz) 
                     throws ClassNotFoundException, NoSuchMethodException, IllegalAccessException {
                 ClassLoader classLoader = clazz.getClassLoader();
 
                 MethodDescription adviceMethod = adviceSpec.getAdviceMethod();
-                Class<?> returnType = ClassUtils.forName(adviceMethod.getReturnType().asErasure().getTypeName(), classLoader);
-                List<Class<?>> paramTypes = new ArrayList<Class<?>>(adviceMethod.getParameters().size());
-                for (ParameterDescription parameter : adviceMethod.getParameters()) {
-                    paramTypes.add( ClassUtils.forName(parameter.getType().asErasure().getTypeName(), classLoader) );
+                Class<?> returnType = ClassUtils.forName(adviceMethod.getReturnType().getTypeName(), classLoader);
+
+                Map<String, NamedPointcutParameter> namedPointcutParameters = adviceSpec.getNamedPointcutParameters();
+                List<Class<?>> paramTypes = new ArrayList<Class<?>>(namedPointcutParameters.size());
+                for (NamedPointcutParameter namedPointcutParameter : namedPointcutParameters.values()) {
+                    paramTypes.add( ClassUtils.forName(namedPointcutParameter.getParamType().getTypeName(), classLoader) );
                 }
 
                 MethodType methodType = MethodType.methodType(returnType, paramTypes);
@@ -614,7 +611,7 @@ public interface AdviceCreator {
 
             protected Object[] getArguments(MutableJoinpoint<Object, Throwable> joinpoint) {
                 int index = 0;
-                Map<String, NamedPointcutParameter> namedPointcutParameters = getAdviceSpec().getNamedPointcutParameters();
+                Map<String, NamedPointcutParameter> namedPointcutParameters = adviceClassSpec.getNamedPointcutParameters();
                 Object[] args = new Object[namedPointcutParameters.size()];
                 for (Entry<String, NamedPointcutParameter> entry : namedPointcutParameters.entrySet()) {
                     switch (entry.getValue().getParamCategory()) {
@@ -671,7 +668,7 @@ public interface AdviceCreator {
 
             private final MethodHandle beforeAdviceMethod;
 
-            public BeforeAdviceAdapter(AspectJAdviceSpec adviceSpec, Object delegate)
+            public BeforeAdviceAdapter(AspectJAdviceSpec.Loaded adviceSpec, Object delegate)
                     throws ClassNotFoundException, NoSuchMethodException, IllegalAccessException {
                 super(adviceSpec, delegate);
 
@@ -697,7 +694,7 @@ public interface AdviceCreator {
 
             private final MethodHandle afterAdviceMethod;
 
-            public AfterAdviceAdapter(AspectJAdviceSpec adviceSpec, Object delegate)
+            public AfterAdviceAdapter(AspectJAdviceSpec.Loaded adviceSpec, Object delegate)
                     throws ClassNotFoundException, NoSuchMethodException, IllegalAccessException {
                 super(adviceSpec, delegate);
 
@@ -733,8 +730,7 @@ public interface AdviceCreator {
          * {@inheritDoc}
          */
         @Override
-        protected ElementMatcher<MethodDescription> doCreateAdviceMatcher(AdvisorContext advisorContext,
-                AdvisorSpec advisorSpec, ByteBuddyAdviceSpec adviceSpec) {
+        protected AdviceMatcher doCreateAdviceMatcher(AdvisorContext advisorContext, ByteBuddyAdviceSpec adviceSpec) {
             return new AdviceMatcher.ByteBuddyAdviceMatcher(adviceSpec);
         }
 

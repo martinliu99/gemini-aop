@@ -76,11 +76,7 @@ public interface AdvisorCreator {
 
         public Compound(FactoryContext factoryContext) {
             List<? extends AdvisorCreator> advisorCreators = factoryContext.getObjectFactory()
-                    .createObjectsImplementing(
-                            AdvisorCreator.class, 
-                            false, 
-                            "factoryContext", factoryContext
-                    );
+                    .createObjectsImplementing(AdvisorCreator.class, false, factoryContext);
             this.advisorCreators = advisorCreators == null 
                     ? Collections.emptyList() : advisorCreators;
 
@@ -92,6 +88,8 @@ public interface AdvisorCreator {
          */
         @Override
         public Advisor create(AdvisorContext advisorContext, AdvisorSpec advisorSpec) {
+            advisorSpec = advisorSpec.load(advisorContext.getTypePool());
+
             for (AdvisorCreator advisorCreator : advisorCreators) {
                 try {
                     Advisor advisor = advisorCreator.create(advisorContext, advisorSpec);
@@ -281,14 +279,14 @@ public interface AdvisorCreator {
          */
         @Override
         protected Advisor doCreateAdvisor(AdvisorContext advisorContext, PointcutAdvisorSpec advisorSpec) {
-            Pointcut pointcut = getPointcutCreator().create(advisorContext, advisorSpec);
+            PointcutCreator pointcutCreator = getPointcutCreator();
+            Pointcut pointcut = pointcutCreator.create(advisorContext, advisorSpec);
             if (pointcut == null)
                 return null;
 
             return new DefaultPointcutAdvisor(
+                    advisorContext, getAdviceCreator(),
                     advisorSpec, 
-                    advisorContext,
-                    getAdviceCreator(),
                     advisorSpec.getPointcutSpec().isBreakCircularity(),
                     pointcut
             );
@@ -309,9 +307,8 @@ public interface AdvisorCreator {
         private Class<? extends Advice> adviceClass;
 
 
-        public DefaultPointcutAdvisor(AdvisorSpec advisorSpec,
-                AdvisorContext advisorContext, AdviceCreator adviceCreator, 
-                boolean breakCircularity, Pointcut pointcut) {
+        public DefaultPointcutAdvisor(AdvisorContext advisorContext, AdviceCreator adviceCreator, 
+                AdvisorSpec advisorSpec, boolean breakCircularity, Pointcut pointcut) {
             super(advisorSpec.getAdvisorName(), advisorSpec.getAdviceSpec().getAdviceKind(), 
                     advisorSpec.isPerInstance(), advisorSpec.getOrder(), 
                     breakCircularity, pointcut);

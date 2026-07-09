@@ -81,11 +81,7 @@ public interface AdvisorSpecPostProcessor {
 
         public Compound(FactoryContext factoryContext) {
             List<? extends AdvisorSpecPostProcessor> advisorSpecPostProcessors = factoryContext.getObjectFactory()
-                    .createObjectsImplementing(
-                            AdvisorSpecPostProcessor.class, 
-                            false, 
-                            "factoryContext", factoryContext
-                    );
+                    .createObjectsImplementing(AdvisorSpecPostProcessor.class, false);
             this.advisorSpecPostProcessors = advisorSpecPostProcessors == null 
                     ? Collections.emptyList() : advisorSpecPostProcessors;
 

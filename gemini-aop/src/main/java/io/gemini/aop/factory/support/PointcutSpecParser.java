@@ -38,8 +38,6 @@ import io.gemini.core.config.ConfigView;
 import io.gemini.core.util.StringUtils;
 import io.gemini.core.util.Throwables;
 import net.bytebuddy.description.annotation.AnnotationDescription;
-import net.bytebuddy.description.annotation.AnnotationList;
-import net.bytebuddy.description.type.TypeDescription;
 
 /**
  * Parses {@link PointcutSpec} instances from a {@link AdviceSpec} or from configuration properties.
@@ -120,7 +118,7 @@ public interface PointcutSpecParser {
                                 + "  DeclaringType: {} \n"
                                 + "  Error reason: {} \n", 
                                 pointcutSpecParser.getClass().getSimpleName(), 
-                                adviceSpec.getDeclaringType().getTypeName(),
+                                adviceSpec.getDeclaringTypeName(),
                                 t.getMessage(), 
                                 t
                         );
@@ -168,7 +166,7 @@ public interface PointcutSpecParser {
      * Abstract base providing common parsing logic: spec class filtering, error handling,
      * and config-key-based parsing delegation.
      */
-    abstract class AbstractBase<A extends AdviceSpec, P extends PointcutSpec> implements PointcutSpecParser {
+    abstract class AbstractBase<AS extends AdviceSpec, PS extends PointcutSpec> implements PointcutSpecParser {
 
         protected abstract boolean supports(AdviceSpec adviceSpec);
 
@@ -182,15 +180,15 @@ public interface PointcutSpecParser {
                 if (adviceSpec == null || supports(adviceSpec) == false)
                     return null;
 
-                return doParse(factoryContext, (A) adviceSpec);
-            } catch(IllegalSpecException e) {
+                return doParse(factoryContext, (AS) adviceSpec);
+            } catch (IllegalSpecException e) {
                 return null;
             } catch (Exception e) {
                 LOGGER.warn("Could not parse PointcutSpec via '{}'. \n"
                         + "  DeclaringType: {} \n"
                         + "  Error reason: {} \n", 
                         this.getClass().getSimpleName(), 
-                        adviceSpec.getDeclaringType().getTypeName(), 
+                        adviceSpec.getDeclaringTypeName(), 
                         e.getMessage(),
                         e
                 );
@@ -199,13 +197,7 @@ public interface PointcutSpecParser {
             }
         }
 
-        protected abstract P doParse(FactoryContext factoryContext, A adviceSpec);
-
-
-        protected boolean isBreakCircularity(AnnotationList annotations) {
-            return annotations.isAnnotationPresent(EnableCircularityBreaker.class)
-                    ? true : PointcutSpec.DEFAULT_BREAK_CIRCULARITY;
-        }
+        protected abstract PS doParse(FactoryContext factoryContext, AS adviceSpec);
 
 
         /** 
@@ -213,13 +205,13 @@ public interface PointcutSpecParser {
          */
         @SuppressWarnings("unchecked")
         @Override
-        public PointcutSpec parse(FactoryContext factoryContext, String configKeyPrefix, AdviceSpec adviceSpec,
-                PointcutAdvisorSpec existingAdvisorSpec) {
+        public PointcutSpec parse(FactoryContext factoryContext, String configKeyPrefix, 
+                AdviceSpec adviceSpec, PointcutAdvisorSpec existingAdvisorSpec) {
             try {
                 if (adviceSpec == null || supports(adviceSpec) == false)
                     return null;
 
-                return doParse(factoryContext, configKeyPrefix, (A) adviceSpec, existingAdvisorSpec);
+                return doParse(factoryContext, configKeyPrefix, (AS) adviceSpec, existingAdvisorSpec);
             } catch (Exception e) {
                 if (LOGGER.isWarnEnabled())
                     LOGGER.warn("Could not parse PointcutSpec via '{}'. \n"
@@ -228,7 +220,7 @@ public interface PointcutSpecParser {
                             + "  Error reason: {} \n", 
                             this.getClass().getSimpleName(), 
                             configKeyPrefix,
-                            adviceSpec.getDeclaringType().getTypeName(), 
+                            adviceSpec.getDeclaringTypeName(), 
                             e.getMessage(), 
                             e
                     );
@@ -238,7 +230,7 @@ public interface PointcutSpecParser {
         }
 
         protected abstract PointcutSpec doParse(FactoryContext factoryContext, String configKeyPrefix, 
-                A adviceSpec, PointcutAdvisorSpec existingAdvisorSpec);
+                AS adviceSpec, PointcutAdvisorSpec existingAdvisorSpec);
     }
 
 
@@ -262,10 +254,8 @@ public interface PointcutSpecParser {
         @SuppressWarnings("unchecked")
         @Override
         protected PojoPointcutSpec doParse(FactoryContext factoryContext, AdviceSpec adviceSpec) {
-            TypeDescription adviceType = adviceSpec.getDeclaringType();
-
             Class<? extends Pointcut> pointcutClass = null;
-            AnnotationDescription pointcutAnnotation = adviceType.getDeclaredAnnotations().ofType(PojoPointcut.class);
+            AnnotationDescription pointcutAnnotation = adviceSpec.getAnnotation(PojoPointcut.class);
             if (pointcutAnnotation != null)
                 pointcutClass = pointcutAnnotation.getValue("value")
                 .load(factoryContext.getClassLoader())
@@ -275,7 +265,7 @@ public interface PointcutSpecParser {
                 return null;
 
             return new PojoPointcutSpec.Default(
-                    isBreakCircularity(adviceType.getDeclaredAnnotations()), 
+                    adviceSpec.getAnnotation(EnableCircularityBreaker.class) != null, 
                     pointcutClass
             );
         }
@@ -312,10 +302,8 @@ public interface PointcutSpecParser {
          */
         @Override
         protected ExprPointcutSpec doParse(FactoryContext factoryContext, AdviceSpec adviceSpec) {
-            TypeDescription adviceType = adviceSpec.getDeclaringType();
-
             String pointcutExpression = null;
-            AnnotationDescription pointcutAnnotation = adviceType.getDeclaredAnnotations().ofType(ExprPointcut.class);
+            AnnotationDescription pointcutAnnotation = adviceSpec.getAnnotation(ExprPointcut.class);
             if (pointcutAnnotation != null)
                 pointcutExpression = pointcutAnnotation.getValue("value").resolve(String.class).trim();
 
@@ -323,7 +311,7 @@ public interface PointcutSpecParser {
                 return null;
 
             return new ExprPointcutSpec.Default(
-                    isBreakCircularity(adviceType.getDeclaredAnnotations()), 
+                    adviceSpec.getAnnotation(EnableCircularityBreaker.class) != null, 
                     pointcutExpression 
             );
         }
@@ -370,8 +358,7 @@ public interface PointcutSpecParser {
          */
         @Override
         protected AspectJPointcutSpec doParse(FactoryContext factoryContext, AspectJAdviceSpec adviceSpec) {
-            AnnotationList decalaringTypeAnnotations = adviceSpec.getDeclaringType().getDeclaredAnnotations();
-            if (decalaringTypeAnnotations.isAnnotationPresent(Aspect.class) == false)
+            if (adviceSpec.getAnnotation(Aspect.class) == null)
                 return null;
 
             AnnotationDescription aspectJAdviceAnnotation = adviceSpec.getAdviceAnnotation();;
@@ -383,9 +370,8 @@ public interface PointcutSpecParser {
                 } catch (Exception ignored) { /* do nothing */ }
             }
 
-            AnnotationList adviceMethodAnnotations = adviceSpec.getAdviceMethod().getDeclaredAnnotations();
             return new AspectJPointcutSpec.Default(
-                    isBreakCircularity(decalaringTypeAnnotations) || isBreakCircularity(adviceMethodAnnotations), 
+                    adviceSpec.getAnnotation(EnableCircularityBreaker.class) != null,
                     pointcutExpression
             );
         }
@@ -404,7 +390,8 @@ public interface PointcutSpecParser {
             if (StringUtils.hasText(pointcutExpression) == false)
                 return existingAdvisorSpec.getPointcutSpec();
 
-            boolean breakCircularity = configView.getAsBoolean(configKeyPrefix + "breakCircularity", false);
+            boolean breakCircularity = configView.getAsBoolean(configKeyPrefix + "breakCircularity", 
+                    PointcutSpec.DEFAULT_BREAK_CIRCULARITY);
 
             return new ExprPointcutSpec.Default(breakCircularity, pointcutExpression);
         }

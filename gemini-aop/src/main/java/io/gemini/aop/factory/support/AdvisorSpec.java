@@ -18,6 +18,7 @@ package io.gemini.aop.factory.support;
 import io.gemini.api.aop.MatchingContext;
 import io.gemini.core.util.StringUtils;
 import net.bytebuddy.matcher.ElementMatcher;
+import net.bytebuddy.pool.TypePool;
 
 /**
  * Describes the full specification of an advisor parsed from an aspect application.
@@ -77,6 +78,15 @@ public interface AdvisorSpec {
      * @return the advisor order
      */
     int getOrder();
+
+
+    /**
+     * Loads {@link AdvisorSpec} per the given target {@link TypePool}.
+     * 
+     * @param targetTypePool the target {@link TypePool}
+     * @return the instance of {@link AdvisorSpec}
+     */
+    AdvisorSpec load(TypePool targetTypePool);
 
 
     /**
@@ -163,6 +173,37 @@ public interface AdvisorSpec {
          * {@inheritDoc}
          */
         @Override
+        public int hashCode() {
+            final int prime = 31;
+            int result = 1;
+            result = prime * result + ((advisorName == null) ? 0 : advisorName.hashCode());
+            return result;
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj)
+                return true;
+            if (obj == null)
+                return false;
+            if (obj instanceof AdvisorSpec.AbstractBase == false)
+                return false;
+            AbstractBase other = (AbstractBase) obj;
+            if (advisorName == null) {
+                if (other.advisorName != null)
+                    return false;
+            } else if (!advisorName.equals(other.advisorName))
+                return false;
+            return true;
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
         public String toString() {
             return getOrder() + " - " + getAdvisorName();
         }
@@ -193,11 +234,6 @@ public interface AdvisorSpec {
 
 
             public Default(String advisorName, ElementMatcher<MatchingContext> condition, 
-                    boolean perInstance, int order) {
-                this(advisorName, condition, null, perInstance, order, null);
-            }
-
-            public Default(String advisorName, ElementMatcher<MatchingContext> condition, 
                     AdviceSpec adviceSpec, boolean perInstance, int order, 
                     PointcutSpec pointcutSpec) {
                 super(advisorName, condition, adviceSpec, perInstance, order);
@@ -215,6 +251,21 @@ public interface AdvisorSpec {
 
             protected void setPointcutSpec(PointcutSpec pointcutSpec) {
                 this.pointcutSpec = pointcutSpec;
+            }
+
+            /** 
+             * {@inheritDoc}
+             */
+            @SuppressWarnings("rawtypes")
+            @Override
+            public AdvisorSpec load(TypePool targetTypePool) {
+                AdviceSpec adviceSpec = getAdviceSpec();
+                if (adviceSpec instanceof AdviceSpec.Loadable)
+                    adviceSpec = ((AdviceSpec.Loadable) adviceSpec).load(targetTypePool);
+
+                return new Default(getAdvisorName(), getCondition(), 
+                        adviceSpec, isPerInstance(), getOrder(), 
+                        pointcutSpec);
             }
         }
     }
