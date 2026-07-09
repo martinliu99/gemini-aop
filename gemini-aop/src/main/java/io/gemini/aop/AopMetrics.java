@@ -115,6 +115,7 @@ public class AopMetrics {
 
         this.workThread = new Thread(this::processMetrics, "Gemini-" + this.getClass().getSimpleName());
         workThread.setDaemon(true);
+        workThread.setPriority(Thread.NORM_PRIORITY);
         workThread.start();
 
         this.batchSize = 20;
@@ -483,7 +484,7 @@ public class AopMetrics {
             valueMap.put("appStartupTime", appStartupTime );
 
             valueMap.put("launcherStartupTime", launcherMetrics.getLauncherStartupTime() / NANO_TIME);
-            valueMap.put("tyepWeavingTime", appStartupMetrics.getTypeWeavingTime() / NANO_TIME );
+            valueMap.put("typeWeavingTime", appStartupMetrics.getTypeWeavingTime() / NANO_TIME );
 
             valueMap.put("uncategorizedTime", appStartupTime - launcherMetrics.getLauncherStartupTime() / NANO_TIME - appStartupMetrics.getTypeWeavingTime() / NANO_TIME );
 
@@ -491,8 +492,8 @@ public class AopMetrics {
 
 
             // collect raw metrics
-            valueMap.put("tyepTransformationCount", appStartupMetrics.getTypeTransformationCount() );
-            valueMap.put("tyepWeavingCount", appStartupMetrics.getTypeWeavingCount() );
+            valueMap.put("typeTransformationCount", appStartupMetrics.getTypeTransformationCount() );
+            valueMap.put("typeWeavingCount", appStartupMetrics.getTypeWeavingCount() );
 
 
             PlaceholderHelper placeholderHelper = PlaceholderHelper.create(valueMap);

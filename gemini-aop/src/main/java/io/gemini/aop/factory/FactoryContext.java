@@ -170,7 +170,7 @@ public class FactoryContext implements Closeable {
         this.placeholderHelper = PlaceholderHelper.create(configView);
 
         // load factory settings
-        this.loadSettings(factoriesContext, configView);
+        this.loadSettings(configView);
 
 
         // 3.create properties
@@ -316,7 +316,7 @@ public class FactoryContext implements Closeable {
      * @param typePool  the aspect type pool
      * @param placeholderHelper the place holder resolver
      * @param aspectClassLoader the aspect class loader
-     * @param typeWordlFactory the type world factory
+     * @param typeWorldFactory the type world factory
      * @return the created {@link AspectTypeWorld}
      */
     private CacheResolutionFacade createAspectTypeWorld(AspectTypePool typePool, PlaceholderHelper placeholderHelper, 
@@ -336,10 +336,9 @@ public class FactoryContext implements Closeable {
      * target-first type/resource matchers, factory class loader filter, enabled-advisor filter,
      * shared class loader flag, and conflict class loader groups.
      *
-     * @param factoriesContext the parent factories context providing global defaults
      * @param configView       the merged config view for this aspect application
      */
-    private void loadSettings(FactoriesContext factoriesContext, ConfigView configView) {
+    private void loadSettings(ConfigView configView) {
         {
             Set<String> targetTypeExpressions = configView.getAsStringSet(FACTORY_TARGET_TYPE_EXPRESSIONS, Collections.emptySet());
 
@@ -549,7 +548,7 @@ public class FactoryContext implements Closeable {
      * @param targetClassLoader the target class loader
      * @param targetJavaModule  the target Java module
      * @param validateContext   if {@code true}, enables validation mode
-     * @param aspectTypeMatcher 
+     * @param aspectTypeMatcher the aspect type matcher
      * @return a new {@link AdvisorContext}
      */
     protected AdvisorContext doCreateAdvisorContext(ClassLoader targetClassLoader, JavaModule targetJavaModule, 
