@@ -18,6 +18,8 @@ package io.gemini.core.util;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -103,16 +105,14 @@ public abstract class ClassLoaderUtils {
      *
      * @return list of classpath entry strings
      */
-    public static List<String> getClassPaths() {
+    public static List<Path> getClassPaths() {
         String classpathStr = System.getProperty("java.class.path");
-        classpathStr = classpathStr.replace('\\', '/');
-        String[] classPathValues = classpathStr.split(File.pathSeparator, -1);
 
-        List<String> classPaths = new ArrayList<>(classPathValues.length);
+        String[] classPathValues = classpathStr.split(File.pathSeparator, -1);
+        List<Path> classPaths = new ArrayList<>(classPathValues.length);
         for (String classPath : classPathValues) {
             classPath = classPath.trim();
-            classPath = classPath.charAt(classPath.length()-1) == File.pathSeparatorChar ? classPath.substring(0, classPath.length()-1) : classPath;
-            classPaths.add(classPath);
+            classPaths.add( Paths.get(classPath).normalize() );
         }
 
         return classPaths;

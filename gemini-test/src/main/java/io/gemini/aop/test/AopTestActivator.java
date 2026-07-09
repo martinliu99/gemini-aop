@@ -16,7 +16,9 @@
 package io.gemini.aop.test;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.instrument.Instrumentation;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -27,8 +29,11 @@ import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.jar.JarFile;
 import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
 
 import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.launcher.LauncherDiscoveryListener;
@@ -47,6 +52,7 @@ import io.gemini.api.activation.LauncherConfig;
 import io.gemini.api.classloader.AopClassLoader;
 import io.gemini.core.util.ClassLoaderUtils;
 import io.gemini.core.util.ClassUtils;
+import io.gemini.core.util.IOUtils;
 import io.gemini.core.util.SingleEnumeration;
 import net.bytebuddy.agent.ByteBuddyAgent;
 
@@ -65,8 +71,11 @@ public class AopTestActivator implements LauncherDiscoveryListener, TestExecutio
 
     protected static final Logger LOGGER = LoggerFactory.getLogger(AopTestActivator.class);
 
-    private static final String GEMINI_TEST_DEPENDENCY = "gemini-test";
+    private static final String AOP_DEPENDENCY_NAME = "gemini-aop";
 
+    private static final String DEPENDENCIES_FILE_RELATIVE_PATH = "META-INF/dependencies.txt";
+    private static final String TARGET_CLASSES_RELATIVE_PATH = "target/classes";
+    private static final String TEST_CLASSES_RELATIVE_PATH = "target/test-classes";
 
     private static boolean LAUNCHED = false;
 
@@ -92,28 +101,32 @@ public class AopTestActivator implements LauncherDiscoveryListener, TestExecutio
         // 1.prepare arguments
         Instrumentation instrumentation = ByteBuddyAgent.install();
 
-        URL rootResource = AopTestActivator.class.getClassLoader().getResource(".");
+        URL rootResource = AopTestActivator.class.getClassLoader().getResource("");
         String launchLocation = new File(rootResource.toURI()).getParentFile().getPath() + File.separator + "aop-int-test" + File.separator;
         Path launchPath = Paths.get(launchLocation);
         if (Files.exists(launchPath) == false)
             Files.createDirectory( launchPath);
 
-        List<String> classPaths = ClassLoaderUtils.getClassPaths();
-        List<URL> classPathURLs = new ArrayList<>(classPaths.size());
+        List<Path> classPaths = ClassLoaderUtils.getClassPaths();
+
+        // load AOP framework dependencies
+        List<URL> aopDependencies = resolveAopDependencies(classPaths);
+
+        // collect resource files
         Map<String, URL> resourceFileURLs = new LinkedHashMap<>();
-        for (String classPath : classPaths) {
-            collectURLs(classPath, classPathURLs, resourceFileURLs);
+        for (Path classPath : classPaths) {
+            collectResourceURLs(classPath, resourceFileURLs);
         }
 
 
         // 2.activate AopLauncher
         try {
             LauncherConfig launcherConfig = new UnpackedArchiveConfig(launchPath, null, "",
-                    () -> classPathURLs.toArray( new URL[0]),
+                    () -> aopDependencies.toArray( new URL[0]),
                     true,
                     new AspectAppScanner.ClassesFolder() );
 
-            AopClassLoader aopClassLoader = new DefaultAopClassLoader(classPathURLs.toArray(new URL[0]),  AopTestActivator.class.getClassLoader());
+            AopClassLoader aopClassLoader = new DefaultAopClassLoader(aopDependencies.toArray(new URL[0]),  AopTestActivator.class.getClassLoader());
 
             configureClassLoader(aopClassLoader, resourceFileURLs);
 
@@ -123,57 +136,112 @@ public class AopTestActivator implements LauncherDiscoveryListener, TestExecutio
         }
     }
 
-    private void collectURLs(String classPath, List<URL> classPathURLs, Map<String, URL> resourceFileURLs) {
-        Path rootPath = Paths.get(classPath).normalize();
-        if (Files.exists(rootPath) == false)
-            return;
+    private List<URL> resolveAopDependencies(List<Path> classPaths) {
+        // 1.load gemini-aop dependencies file
+        Path aopDependencyPath = null;
+        String dependenciesText = null;
+        for (Path classPath : classPaths) {
+            if (Files.isRegularFile(classPath)) {
+                // load dependencies file from jar file
+                String fileName = classPath.getFileName().toString().toLowerCase(Locale.ROOT);
+                if (!fileName.endsWith(".jar") || !fileName.startsWith(AOP_DEPENDENCY_NAME))
+                    continue;
 
-        URL rootUrl = null;
-        try {
-            rootUrl = rootPath.toUri().toURL();
-        } catch (MalformedURLException e) {
-            return;
+                aopDependencyPath = classPath;
+
+                try (JarFile aopJarFile = new JarFile(classPath.toFile()) ){
+                    ZipEntry aopJarEntry = aopJarFile.getEntry(DEPENDENCIES_FILE_RELATIVE_PATH);
+                    if (aopJarEntry == null) {
+                        LOGGER.warn("Could not find '{}' from jar file '{}'.", 
+                                DEPENDENCIES_FILE_RELATIVE_PATH, classPath);
+                        continue;
+                    }
+
+                    try (InputStream inputStream = aopJarFile.getInputStream(aopJarEntry)) {
+                        dependenciesText = IOUtils.toString(inputStream);
+                    }
+
+                    break;
+                } catch (IOException e) {
+                    LOGGER.warn("Could not resolve '{}' from jar file '{}'.", 
+                            DEPENDENCIES_FILE_RELATIVE_PATH, classPath, e);
+                }
+            } else {
+                // load dependencies file under target-classes folder
+                if (!classPath.endsWith(TARGET_CLASSES_RELATIVE_PATH) 
+                        || !classPath.getParent().getParent().getFileName().toString().equals(AOP_DEPENDENCY_NAME))
+                    continue;
+
+                aopDependencyPath = classPath;
+
+                Path aopClassesPath = classPath.resolve(DEPENDENCIES_FILE_RELATIVE_PATH);
+                if (!Files.exists(aopClassesPath)) {
+                    LOGGER.warn("Could not find '{}' under '{}'.", DEPENDENCIES_FILE_RELATIVE_PATH, aopClassesPath);
+                    continue;
+                }
+
+                try (InputStream inputStream = new FileInputStream( aopClassesPath.toFile()) ) {
+                    dependenciesText = IOUtils.toString(inputStream);
+
+                    break;
+                } catch (Exception e) {
+                    LOGGER.warn("Could not find '{}' under '{}'.", DEPENDENCIES_FILE_RELATIVE_PATH, aopClassesPath, e);
+                }
+            }
+        }
+        if (dependenciesText == null)
+            return new ArrayList<>();
+
+
+        // 2.resolve gemini-aop dependencies
+        String[] aopClassPathValues = dependenciesText.split("\n", -1);
+
+        List<URL> aopClassPaths = new ArrayList<>(aopClassPathValues.length + 1);
+        collectClassPath(aopDependencyPath, aopClassPaths);
+
+        for (String aopClassPathValue : aopClassPathValues) {
+            for (Path classPath : classPaths) {
+                if (classPath.endsWith(aopClassPathValue)
+                        || (classPath.endsWith(TARGET_CLASSES_RELATIVE_PATH) 
+                                && aopClassPathValue.startsWith(classPath.getParent().getParent().getFileName().toString())) )
+                    collectClassPath(classPath, aopClassPaths);
+            }
         }
 
+        return aopClassPaths;
+    }
 
-        // 1.collect class path file, and exclude gemini-test.jar
-        if (Files.isRegularFile(rootPath)) {
-            Path fileName = rootPath.getFileName();
-            if (fileName.startsWith(GEMINI_TEST_DEPENDENCY) && fileName.endsWith("jar"))
-                return;
+    private void collectResourceURLs(Path classPath, Map<String, URL> resourceFileURLs) {
+        // iterate test-classes folder to load resource files
+        if (!classPath.endsWith(TEST_CLASSES_RELATIVE_PATH)) 
+            return ;
 
-            classPathURLs.add(rootUrl);
-            return;
-        }
-
-
-        // 2.collect class path folder, and exclude gemini-test folder
-        if (rootPath.endsWith("target/classes")) { 
-            if (rootPath.getParent().getParent().getFileName().toString().equals(GEMINI_TEST_DEPENDENCY)) 
-                return;
-
-            classPathURLs.add(rootUrl);
-            return;
-        }
-
-
-        // 3.iterate test-classes folder to load resource files
-        try (Stream<Path> stream = Files.walk(rootPath)) {
+        try (Stream<Path> stream = Files.walk(classPath)) {
             stream
             .filter( Files::isRegularFile )
             .filter( p -> p.toString().endsWith(ClassUtils.CLASS_FILE_EXTENSION) == false )
             .forEach( p -> {
                 try {
-                    String path = rootPath.relativize(p.normalize()).toString().replace('\\', ClassUtils.RESOURCE_SPERATOR);
+                    String path = classPath.relativize(p.normalize()).toString().replace('\\', ClassUtils.RESOURCE_SPERATOR);
                     resourceFileURLs.put(path, p.toUri().toURL());
                 } catch (MalformedURLException e) {
                     LOGGER.warn("Could not convert path: {}", p, e);
                 }
             } );
         } catch (IOException e) {
-            LOGGER.warn("Could not iterate path: {}", rootPath, e);
+            LOGGER.warn("Could not iterate path: {}", classPath, e);
         }
     }
+
+    private void collectClassPath(Path dependentClassPath, List<URL> aopClassPaths) {
+        try {
+            aopClassPaths.add(dependentClassPath.toUri().toURL());
+        } catch (MalformedURLException e) {
+            if (LOGGER.isInfoEnabled())
+                LOGGER.info("Could not fetch class path URL '{}'.", dependentClassPath, e);
+        }
+    }
+
 
     private void configureClassLoader(AopClassLoader aopClassLoader, Map<String, URL> resourceFileURLs) {
         // 1.load {@code ExecutionMemento} relevant classes via Launcher ClassLoader.
