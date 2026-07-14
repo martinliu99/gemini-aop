@@ -886,7 +886,7 @@ public interface AdviceSpec extends AnnotationFinder {
         /**
          * Subtype of {@link AspectJAdviceSpec} parses the pointcut parameter bindings, 
          * returning/throwing parameter types, and generates the unloaded advice class via
-         * {@link AdviceClassGenerator}.
+         * {@link AspectJAdviceGenerator}.
          */
         interface Loaded extends AspectJAdviceSpec, ExprPointcut.PointcutParameterMatcher {
 
@@ -1151,7 +1151,7 @@ public interface AdviceSpec extends AnnotationFinder {
                 @Override
                 public DynamicType.Unloaded<? extends Advice> getUnloadedAdviceClass() {
                     if (unloadedAdviceClass == null)
-                        this.unloadedAdviceClass = AdviceClassGenerator.INSTANCE.make(this, true);
+                        this.unloadedAdviceClass = AspectJAdviceGenerator.INSTANCE.make(this, true);
 
                     return unloadedAdviceClass;
                 }

@@ -61,6 +61,61 @@ public interface MethodHandleLookup {
     MethodHandle findStatic(Class<?> refClass, String methodName, MethodType methodType)
             throws NoSuchMethodException, IllegalAccessException;
 
+    /**
+     * Refers to {@link Lookup#findVirtual(Class, String, MethodType)}.
+     * 
+     * @param refClass the class or interface from which the method is accessed
+     * @param methodName the name of the method
+     * @param methodType the type of the method, with the receiver argument omitted
+     * @return the desired method handle
+     * @throws NoSuchMethodException if the method does not exist
+     * @throws IllegalAccessException if access checking fails,
+     *                                or if the method is {@code static}
+     *                                or if the method's variable arity modifier bit
+     *                                is set and {@code asVarargsCollector} fails
+     * @exception SecurityException if a security manager is present and it
+     *                              <a href="MethodHandles.Lookup.html#secmgr">refuses access</a>
+     * @throws NullPointerException if any argument is null
+     */
+    MethodHandle findVirtual(Class<?> refClass, String methodName, MethodType methodType)
+            throws NoSuchMethodException, IllegalAccessException ;
+
+    /**
+     * Refers to {@link Lookup#findSpecial(Class, String, MethodType, Class)}.
+     * 
+     * @param refClass the class or interface from which the method is accessed
+     * @param methodName the name of the method (which must not be "&lt;init&gt;")
+     * @param methodType the type of the method, with the receiver argument omitted
+     * @param specialCaller the proposed calling class to perform the {@code invokespecial}
+     * @return the desired method handle
+     * @throws NoSuchMethodException if the method does not exist
+     * @throws IllegalAccessException if access checking fails
+     *                                or if the method's variable arity modifier bit
+     *                                is set and {@code asVarargsCollector} fails
+     * @exception SecurityException if a security manager is present and it
+     *                              <a href="MethodHandles.Lookup.html#secmgr">refuses access</a>
+     * @throws NullPointerException if any argument is null
+     */
+    MethodHandle findSpecial(Class<?> refClass, String methodName, MethodType methodType, 
+            Class<?> specialCaller) throws NoSuchMethodException, IllegalAccessException;
+
+    /**
+     * Refers to {@link Lookup#findConstructor(Class, MethodType)}.
+     * 
+     * @param refClass the class or interface from which the method is accessed
+     * @param methodType the type of the method, with the receiver argument omitted, and a void return type
+     * @return the desired method handle
+     * @throws NoSuchMethodException if the constructor does not exist
+     * @throws IllegalAccessException if access checking fails
+     *                                or if the method's variable arity modifier bit
+     *                                is set and {@code asVarargsCollector} fails
+     * @exception SecurityException if a security manager is present and it
+     *                              <a href="MethodHandles.Lookup.html#secmgr">refuses access</a>
+     * @throws NullPointerException if any argument is null
+     */
+    MethodHandle findConstructor(Class<?> refClass, MethodType methodType)
+            throws NoSuchMethodException, IllegalAccessException ;
+
 
     /**
      * Selects MethodHandleLookup implementation based on current JVM version.
@@ -108,16 +163,6 @@ public interface MethodHandleLookup {
             this.lookup = lookup;
         }
 
-        /** 
-         * {@inheritDoc}
-         */
-        @Override
-        public MethodHandle findStatic(Class<?> refClass, String methodName, MethodType methodType) 
-                throws NoSuchMethodException, IllegalAccessException {
-            return lookup.findStatic(refClass, methodName, methodType);
-        }
-
-
         /**
          * Create {link MethodHandleLookup} instance using a method handle lookup.
          * 
@@ -133,6 +178,43 @@ public interface MethodHandleLookup {
             }
 
             return new UsingReflection(lookup);
+        }
+
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public MethodHandle findStatic(Class<?> refClass, String methodName, MethodType methodType) 
+                throws NoSuchMethodException, IllegalAccessException {
+            return lookup.findStatic(refClass, methodName, methodType);
+        }
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public MethodHandle findVirtual(Class<?> refClass, String methodName, MethodType methodType)
+                throws NoSuchMethodException, IllegalAccessException {
+            return lookup.findVirtual(refClass, methodName, methodType);
+        }
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public MethodHandle findSpecial(Class<?> refClass, String methodName, MethodType methodType,
+                Class<?> specialCaller) throws NoSuchMethodException, IllegalAccessException {
+            return lookup.findSpecial(refClass, methodName, methodType, specialCaller);
+        }
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public MethodHandle findConstructor(Class<?> refClass, MethodType methodType)
+                throws NoSuchMethodException, IllegalAccessException {
+            return lookup.findConstructor(refClass, methodType);
         }
     }
 
@@ -165,16 +247,6 @@ public interface MethodHandleLookup {
         }
 
 
-        /** 
-         * {@inheritDoc}
-         */
-        @Override
-        public MethodHandle findStatic(Class<?> refClass, String methodName, MethodType methodType) 
-                throws NoSuchMethodException, IllegalAccessException {
-            return METHOD_HANDLES_LOOKUP.findStatic(lookup, refClass, methodName, methodType);
-        }
-
-
         /**
          * Create {link MethodHandleLookup} instance using a method handle lookup.
          * 
@@ -198,6 +270,43 @@ public interface MethodHandleLookup {
             } catch (IllegalAccessException exception) {
                 throw new IllegalStateException("Cannot access " + scopeType.getName() + " from " + lookup, exception);
             }
+        }
+
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public MethodHandle findStatic(Class<?> refClass, String methodName, MethodType methodType) 
+                throws NoSuchMethodException, IllegalAccessException {
+            return METHOD_HANDLES_LOOKUP.findStatic(lookup, refClass, methodName, methodType);
+        }
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public MethodHandle findVirtual(Class<?> refClass, String methodName, MethodType methodType)
+                throws NoSuchMethodException, IllegalAccessException {
+            return METHOD_HANDLES_LOOKUP.findVirtual(lookup, refClass, methodName, methodType);
+        }
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public MethodHandle findSpecial(Class<?> refClass, String methodName, MethodType methodType,
+                Class<?> specialCaller) throws NoSuchMethodException, IllegalAccessException {
+            return METHOD_HANDLES_LOOKUP.findSpecial(lookup, refClass, methodName, methodType, specialCaller);
+        }
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public MethodHandle findConstructor(Class<?> refClass, MethodType methodType)
+                throws NoSuchMethodException, IllegalAccessException {
+            return METHOD_HANDLES_LOOKUP.findConstructor(lookup, refClass, methodType);
         }
 
 

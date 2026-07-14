@@ -17,7 +17,6 @@ package io.gemini.aop.factory.support;
 
 import static net.bytebuddy.matcher.ElementMatchers.named;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
@@ -32,7 +31,6 @@ import io.gemini.api.aop.Joinpoint;
 import io.gemini.aspectj.weaver.PointcutParameter.NamedPointcutParameter;
 import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.asm.AsmVisitorWrapper;
-import net.bytebuddy.description.field.FieldDescription;
 import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.type.TypeDefinition;
 import net.bytebuddy.description.type.TypeDescription;
@@ -41,7 +39,6 @@ import net.bytebuddy.dynamic.DynamicType;
 import net.bytebuddy.dynamic.TypeResolutionStrategy;
 import net.bytebuddy.dynamic.scaffold.InstrumentedType;
 import net.bytebuddy.dynamic.scaffold.subclass.ConstructorStrategy;
-import net.bytebuddy.implementation.FieldAccessor;
 import net.bytebuddy.implementation.Implementation;
 import net.bytebuddy.implementation.MethodCall;
 import net.bytebuddy.implementation.bytecode.ByteCodeAppender;
@@ -68,7 +65,7 @@ import net.bytebuddy.jar.asm.Opcodes;
  *
  * @author   martin.liu
  */
-enum AdviceClassGenerator {
+enum AspectJAdviceGenerator {
 
     INSTANCE
     ;
@@ -85,27 +82,18 @@ enum AdviceClassGenerator {
     private static final TypeDescription AFTER_ADVICE_TYPE = TypeDescription.ForLoadedType.of(Advice.After.class);
     private static final String AFTER_ADVICE_METHOD_NAME = AFTER_ADVICE_TYPE.getSimpleName().toLowerCase(Locale.ENGLISH);
 
-    private static final String DELEGATE_CLASS_FILED = "delegateClass";
-    private static final String DELEGATE_OBJECT_FILED = "delegateObject";
-    private static final Constructor<Object> OBJECT_DEFAULT_CONSTRUCTOR;
-
-
-    static {
-        Constructor<Object> constructor = null;
-        try {
-            constructor = Object.class.getDeclaredConstructor();
-        } catch (Exception e) { /* ignored */ }
-        OBJECT_DEFAULT_CONSTRUCTOR = constructor;
-    }
 
     @SuppressWarnings("unchecked")
     public DynamicType.Unloaded<? extends Advice> make(AspectJAdviceSpec.Loaded adviceSpec, boolean autoComputeAsm) {
         AspectJAdviceKind adviceKind = adviceSpec.getAdviceKind();
+        TypeDescription adviceType = adviceSpec.getDeclaringType();
 
-        // 1.define class
-        // prepare parent interfaces
+        // 1.define class with parent class & interfaces
+        Generic superType = TypeDescription.Generic.Builder
+                .parameterizedType(AspectJAdviceAdapter.ASPECTJ_ADPATER_TYPE, adviceType)
+                .build();
+
         List<TypeDefinition> implementTypeDefinitions = new ArrayList<>(2);
-
         if (adviceKind.isAround() == true) {
             implementTypeDefinitions.add(AROUND_ADVICE_TYPE);
         } else if (adviceKind.isBefore() == true) {
@@ -114,13 +102,10 @@ enum AdviceClassGenerator {
             implementTypeDefinitions.add(AFTER_ADVICE_TYPE);
         }
 
-        TypeDescription adviceType = adviceSpec.getDeclaringType();
-        String adviceClassName = adviceSpec.getAdviceClassName();
-
         DynamicType.Builder<?> builder = new ByteBuddy()
-                .subclass(Object.class, ConstructorStrategy.Default.NO_CONSTRUCTORS)
-                .name(adviceClassName)
-                .modifiers(adviceType.getModifiers() | Opcodes.ACC_SYNTHETIC)
+                .subclass(superType, ConstructorStrategy.Default.NO_CONSTRUCTORS)
+                .name(adviceSpec.getAdviceClassName())
+                .modifiers(Modifier.PUBLIC | Opcodes.ACC_SYNTHETIC)
                 .implement(implementTypeDefinitions)
                 .visit( new AsmVisitorWrapper.ForDeclaredMethods()
                         .readerFlags(ClassReader.EXPAND_FRAMES)
@@ -129,34 +114,28 @@ enum AdviceClassGenerator {
                 ;
 
 
-        // 2.define field
-        builder = builder.defineField(DELEGATE_CLASS_FILED, adviceType, Modifier.STATIC | Modifier.PRIVATE | Modifier.FINAL);
-        builder = builder.defineField(DELEGATE_OBJECT_FILED, adviceType, Modifier.PRIVATE | Modifier.FINAL);
-
-
-        // 3.define constructor
+        // 2.define constructor
         builder = builder
-//                .define
                 .defineConstructor(Modifier.PUBLIC)
-                .withParameter(adviceType, DELEGATE_OBJECT_FILED)
+                .withParameter(AspectJAdviceSpec.Loaded.class, AspectJAdviceAdapter.CONSTRUCTOR_PARAM0_ADVICE_SPEC)
+                .withParameter(adviceType, AspectJAdviceAdapter.CONSTRUCTOR_PARAM1_DELEGATE_OBJECT)
                 .intercept(
-                        MethodCall.invoke(OBJECT_DEFAULT_CONSTRUCTOR)
-                        .andThen(
-                                FieldAccessor.ofField(DELEGATE_OBJECT_FILED).setsArgumentAt(0)
-                        )
+                        MethodCall.invoke(AspectJAdviceAdapter.CONSTRUCTOR).withAllArguments()
                 );
 
 
-        // 4.define advice method
+        // 3.define advice method
         String methodName = adviceKind.isAround() 
                 ? AROUND_ADVICE_METHOD_NAME 
                 : (adviceKind.isBefore() ? BEFORE_ADVICE_METHOD_NAME : AFTER_ADVICE_METHOD_NAME);
         builder = builder
                 .defineMethod(methodName, void.class, Modifier.PUBLIC)
                 .withParameter(MUTABLE_JOINPOINT_TYPE, "joinpoint")
-        .throwing(Throwable.class)
-        .intercept( new AspectJAdviceMethodImplementation(adviceSpec) )
-        ;
+                .throwing(Throwable.class)
+                .intercept( 
+                        new AspectJAdviceMethodImplementation(adviceSpec) 
+                )
+                ;
 
         return (DynamicType.Unloaded<? extends Advice>) builder.make(TypeResolutionStrategy.Lazy.INSTANCE);
     }
@@ -216,8 +195,6 @@ enum AdviceClassGenerator {
         @Override
         public Size apply(MethodVisitor methodVisitor, Context implementationContext, 
                 MethodDescription instrumentedMethod) {
-            TypeDescription instrumentedType = instrumentedMethod.getDeclaringType().asErasure();
-
             int localVariableSize = instrumentedMethod.getStackSize();
             int operandsStackSize = 0;
 
@@ -238,35 +215,22 @@ enum AdviceClassGenerator {
             }
 
 
-            // 2.declare and assign argument local variable
-            // Object[] arguments = joinpoint.getArguments()
-            Map<String, NamedPointcutParameter> namedPointcutParameters = adviceSpec.getNamedPointcutParameters();
-            int argumentsVariableOffset = -1;
-            if (namedPointcutParameters.size() > 0) {
-                methodVisitor.visitVarInsn(Opcodes.ALOAD, PARAM_INDEX1_MUTABLE_JOINPOINT);
-                methodVisitor.visitMethodInsn(Opcodes.INVOKEINTERFACE, JOINPOINT_TYPE.getInternalName(), 
-                        GET_ARGUMENTS_METHOD.getInternalName(), GET_ARGUMENTS_METHOD.getDescriptor(), true);
-
-                argumentsVariableOffset = localVariableSize++;
-                methodVisitor.visitVarInsn(Opcodes.ASTORE, argumentsVariableOffset);
-            }
-
-
-            // 3.invoke AspectJAdvice method
+            // 2.invoke AspectJAdvice method
             // invoke delegatee.method(joinpoint, ...)
-            // 3.1.push target field for non-static method
+
+            // push target field for non-static method
             MethodDescription adviceMethod = adviceSpec.getAdviceMethod();
             if (adviceMethod.isStatic() == false) {
                 methodVisitor.visitVarInsn(Opcodes.ALOAD, PARAM_INDEX0_THIS_OBJECT);
-
-                FieldDescription.InDefinedShape targetField = instrumentedType.getDeclaredFields().filter(named(DELEGATE_OBJECT_FILED)).getOnly();
-                methodVisitor.visitFieldInsn(Opcodes.GETFIELD, instrumentedType.asErasure().getInternalName(), 
-                        targetField.getInternalName(), targetField.getDescriptor());
+                methodVisitor.visitMethodInsn(Opcodes.INVOKEVIRTUAL, AspectJAdviceAdapter.ASPECTJ_ADPATER_TYPE.getInternalName(),
+                        AspectJAdviceAdapter.GET_DELEGATE_OBJECT_METHOD.getInternalName(), AspectJAdviceAdapter.GET_DELEGATE_OBJECT_METHOD.getDescriptor(), false);
+                Assigner.DEFAULT.assign(OBJECT.asGenericType(), adviceSpec.getDeclaringType().asGenericType(), Typing.DYNAMIC).apply(methodVisitor, implementationContext);
 
                 operandsStackSize++;
             }
 
-            // 3.2.push arguments based on binder type
+            // push arguments based on binder type
+            Map<String, NamedPointcutParameter> namedPointcutParameters = adviceSpec.getNamedPointcutParameters();
             int paramIndex = 0;
             for (Entry<String, NamedPointcutParameter> entry : namedPointcutParameters.entrySet()) {
                 NamedPointcutParameter pointcutParameter = entry.getValue();
@@ -324,7 +288,10 @@ enum AdviceClassGenerator {
                         break;
                     }
                     case ARGS_VAR: {
-                        methodVisitor.visitVarInsn(Opcodes.ALOAD, argumentsVariableOffset);
+                        methodVisitor.visitVarInsn(Opcodes.ALOAD, PARAM_INDEX1_MUTABLE_JOINPOINT);
+                        methodVisitor.visitMethodInsn(Opcodes.INVOKEINTERFACE, JOINPOINT_TYPE.getInternalName(), 
+                                GET_ARGUMENTS_METHOD.getInternalName(), GET_ARGUMENTS_METHOD.getDescriptor(), true);
+
                         IntegerConstant.forValue(pointcutParameter.getArgsIndex()).apply(methodVisitor, implementationContext);
                         methodVisitor.visitInsn(Opcodes.AALOAD);
                         Assigner.DEFAULT.assign(OBJECT.asGenericType(), parameterType.asGenericType(), Typing.DYNAMIC).apply(methodVisitor, implementationContext);
@@ -339,10 +306,10 @@ enum AdviceClassGenerator {
                 }
             }
 
-            // 3.3.invoke delegatee.method(joinpoint, ...)
+            // invoke delegatee.method(joinpoint, ...)
             MethodInvocation.invoke(adviceMethod).apply(methodVisitor, implementationContext);
 
-            // 3.4.pop returning if exists
+            // pop returning if exists
             Generic returningType = adviceMethod.getReturnType();
             int stackSize = returningType.getStackSize().getSize();
             if (stackSize > 0) {
@@ -350,14 +317,14 @@ enum AdviceClassGenerator {
             }
 
 
-            // 4.mark method return label
+            // 3.mark method return label
             if (adviceKind.isAfterReturning() == true || adviceKind.isAfterThrowing() == true) {
                 methodVisitor.visitLabel(nullCheck);
                 methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);     // calculate stack frame map
             }
 
 
-            // 5.return
+            // 4.return
             methodVisitor.visitInsn(Opcodes.RETURN);
 
             return new Size(operandsStackSize, localVariableSize);      // adjust local variable table size

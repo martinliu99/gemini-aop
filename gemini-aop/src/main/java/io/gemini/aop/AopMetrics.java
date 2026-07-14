@@ -115,7 +115,6 @@ public class AopMetrics {
 
         this.workThread = new Thread(this::processMetrics, "Gemini-" + this.getClass().getSimpleName());
         workThread.setDaemon(true);
-        workThread.setPriority(Thread.NORM_PRIORITY);
         workThread.start();
 
         this.batchSize = 20;

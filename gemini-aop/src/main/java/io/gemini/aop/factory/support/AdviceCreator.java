@@ -16,14 +16,8 @@
 package io.gemini.aop.factory.support;
 
 import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
-import java.lang.reflect.Constructor;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,17 +29,14 @@ import io.gemini.aop.factory.FactoryContext;
 import io.gemini.aop.factory.support.AdviceSpec.AspectJAdviceSpec;
 import io.gemini.aop.factory.support.AdviceSpec.ByteBuddyAdviceSpec;
 import io.gemini.aop.factory.support.AdviceSpec.PojoAdviceSpec;
+import io.gemini.aop.factory.support.AspectJAdviceAdapter.AfterAdviceAdapter;
+import io.gemini.aop.factory.support.AspectJAdviceAdapter.BeforeAdviceAdapter;
 import io.gemini.api.annotation.NoScanning;
 import io.gemini.api.aop.Advice;
-import io.gemini.api.aop.Joinpoint.MutableJoinpoint;
-import io.gemini.aspectj.weaver.PointcutParameter.NamedPointcutParameter;
 import io.gemini.core.OrderComparator;
 import io.gemini.core.loading.ClassLoadingStrategySelector;
 import io.gemini.core.object.ObjectFactory;
-import io.gemini.core.util.ClassUtils;
-import io.gemini.core.util.ReflectionUtils;
 import io.gemini.core.util.Throwables;
-import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 
 /**
@@ -313,9 +304,7 @@ public interface AdviceCreator {
                 A adviceSpec, Class<? extends Advice> adviceClass) {
             // try to instantiate advice object
             try {
-                ObjectFactory objectFactory = advisorContext.getObjectFactory();
-
-                return objectFactory.createObject(adviceClass);
+                return advisorContext.getObjectFactory().createObject(adviceClass);
             } catch (Exception e) {
                 if (LOGGER.isWarnEnabled())
                     LOGGER.warn("Ignored AdvisorSpec with uninstantiable AdviceClass. \n"
@@ -372,6 +361,9 @@ public interface AdviceCreator {
             String advisorName = advisorSpec.getAdvisorName();
             Class<? extends Advice> adviceClass = loadClass(advisorContext, advisorName,
                     adviceSpec, adviceSpec.getAdviceClassName());
+            if (adviceClass == null)
+                return null;
+
             if (isValid(advisorContext, advisorName, adviceSpec, adviceClass) == false)
                 return null;
 
@@ -382,7 +374,7 @@ public interface AdviceCreator {
 
     /**
      * Generates and loads a concrete {@link io.gemini.api.aop.Advice} adapter class
-     * for an AspectJ advice method using {@link AdviceClassGenerator}.
+     * for an AspectJ advice method using {@link AspectJAdviceGenerator}.
      */
 //    @NoScanning
     class AspectJAdviceCreator extends AbstractBase<AspectJAdviceSpec.Loaded> {
@@ -413,24 +405,25 @@ public interface AdviceCreator {
             long startedAt = System.nanoTime();
 
             ClassLoader aspectClassLoader = advisorContext.getClassLoader();
-
-            // try to make advice class
             String advisorName = advisorSpec.getAdvisorName();
             try {
+                // try to load advice class if exists
                 try {
                     return (Class<? extends Advice>) aspectClassLoader.loadClass(adviceSpec.getAdviceClassName());
                 } catch (Throwable t) {
                     Throwables.throwIfRequired(t);
                 }
 
+
+                // try to make advice class
                 Class<?> aspectJClass = this.loadClass(advisorContext, advisorName, 
                         adviceSpec, adviceSpec.getDeclaringTypeName());
+                if (aspectJClass == null)
+                    return null;
 
                 Class<? extends Advice> adviceClass = adviceSpec.getUnloadedAdviceClass()
                         .load(aspectClassLoader, ClassLoadingStrategySelector.Default.SINGLETON.select(aspectJClass))
                         .getLoaded();
-
-//                this.loadClass(advisorContext, adviceSpec, adviceSpec.getDeclaringType().getTypeName());
 
                 if (LOGGER.isInfoEnabled() && advisorContext.getFactoryContext().getAopContext().getDiagnosticLevel().isSimpleEnabled())
                     LOGGER.info("Took '{}' seconds to inject AdvisorClass '{}' into classloader '{}'.", 
@@ -467,13 +460,15 @@ public interface AdviceCreator {
                 // load AspectJ class
                 Class<?> aspectJClass = this.loadClass(advisorContext, advisorName, 
                         adviceSpec, adviceSpec.getDeclaringTypeName());
+                if (aspectJClass == null)
+                    return null;
 
-                Constructor<?> adviceConstructor = adviceClass.getConstructor(aspectJClass);
-                ReflectionUtils.makeAccessible(adviceClass, adviceConstructor);
+                ObjectFactory objectFactory = advisorContext.getObjectFactory();
 
-                // try to instantiate advice object
-                return (Advice) adviceConstructor.newInstance(
-                        advisorContext.getObjectFactory().createObject(aspectJClass) );
+                return objectFactory.createObject(adviceClass, 
+                        adviceSpec, 
+                        objectFactory.createObject(aspectJClass)
+                );
             } catch (Exception e) {
                 if (LOGGER.isWarnEnabled())
                     LOGGER.warn("Could not instantiate adapter class for AspectJ advice method. \n"
@@ -541,13 +536,15 @@ public interface AdviceCreator {
                 // load AspectJ class
                 Class<?> aspectJClass = this.loadClass(advisorContext, advisorName, 
                         adviceSpec, adviceSpec.getDeclaringTypeName());
-                Object aspectJObject = advisorContext.getObjectFactory().createObject(aspectJClass);
+                if (aspectJClass == null)
+                    return null;
 
+                Object aspectJObject = advisorContext.getObjectFactory().createObject(aspectJClass);
                 AspectJAdviceKind adviceKind = adviceSpec.getAdviceKind();
                 if (adviceKind == AspectJAdviceKind.BEFORE)
-                    return new BeforeAdviceAdapter(adviceSpec, aspectJObject);
+                    return new AspectJAdviceAdapter.BeforeAdviceAdapter(adviceSpec, aspectJObject);
                 else
-                    return new AfterAdviceAdapter(adviceSpec, aspectJObject);
+                    return new AspectJAdviceAdapter.AfterAdviceAdapter(adviceSpec, aspectJObject);
             } catch (Exception e) {
                 if (LOGGER.isWarnEnabled())
                     LOGGER.warn("Could not instantiate adapter class for AspectJ advice method. \n"
@@ -563,151 +560,6 @@ public interface AdviceCreator {
                     );
 
                 return null;
-            }
-        }
-
-
-        /**
-         * Abstract base for {@link MethodHandle}-based AspectJ advice adapters.
-         * Holds the AspectJ aspect instance and provides argument extraction from the joinpoint.
-         */
-        static abstract class AbstractAdapter extends Advice.AbstractBase {
-
-            private final AspectJAdviceSpec.Loaded adviceClassSpec;
-            private final Object delegate;
-
-            public AbstractAdapter(AspectJAdviceSpec.Loaded adviceClassSpec, Object delegate) 
-                    throws ClassNotFoundException, NoSuchMethodException, IllegalAccessException {
-                this.adviceClassSpec = adviceClassSpec;
-                this.delegate = delegate;
-            }
-
-            public Object getDelegate() {
-                return delegate;
-            }
-
-            protected MethodHandle getAdviceMethod(AspectJAdviceSpec.Loaded adviceSpec, Class<?> clazz) 
-                    throws ClassNotFoundException, NoSuchMethodException, IllegalAccessException {
-                ClassLoader classLoader = clazz.getClassLoader();
-
-                MethodDescription adviceMethod = adviceSpec.getAdviceMethod();
-                Class<?> returnType = ClassUtils.forName(adviceMethod.getReturnType().getTypeName(), classLoader);
-
-                Map<String, NamedPointcutParameter> namedPointcutParameters = adviceSpec.getNamedPointcutParameters();
-                List<Class<?>> paramTypes = new ArrayList<Class<?>>(namedPointcutParameters.size());
-                for (NamedPointcutParameter namedPointcutParameter : namedPointcutParameters.values()) {
-                    paramTypes.add( ClassUtils.forName(namedPointcutParameter.getParamType().getTypeName(), classLoader) );
-                }
-
-                MethodType methodType = MethodType.methodType(returnType, paramTypes);
-                if (adviceMethod.isStatic())
-                    return MethodHandles.lookup().findStatic(clazz, adviceMethod.getName(), methodType);
-//                else if (adviceMethod.isPrivate())
-//                    return MethodHandles.lookup().findSpecial(clazz, adviceMethod.getName(), methodType);
-                else
-                    return MethodHandles.lookup().findVirtual(clazz, adviceMethod.getName(), methodType);
-            }
-
-
-            protected Object[] getArguments(MutableJoinpoint<Object, Throwable> joinpoint) {
-                int index = 0;
-                Map<String, NamedPointcutParameter> namedPointcutParameters = adviceClassSpec.getNamedPointcutParameters();
-                Object[] args = new Object[namedPointcutParameters.size()];
-                for (Entry<String, NamedPointcutParameter> entry : namedPointcutParameters.entrySet()) {
-                    switch (entry.getValue().getParamCategory()) {
-                        case JOINPOINT_PARAM:
-                        case MUTABLE_JOINPOINT_PARAM:
-                        case PROCEDDING_JOINPOINT_PARAM: {
-                            // first parameter is Joinpoint
-                            args[index++] = joinpoint;
-
-                            break;
-                        }
-                        case STATIC_PART_PARAM: {
-                            // first parameter is StaticPart
-                            args[index++] = joinpoint.getStaticPart();
-
-                            break;
-                        }
-                        case RETURNING_ANNOTATION: {
-                            args[index++] = joinpoint.getReturning();
-
-                            break;
-                        }
-                        case THROWING_ANNOTATION: {
-                            args[index++] = joinpoint.getThrowing();
-
-                            break;
-                        }
-                        case THIS_VAR:
-                        case TARGET_VAR: {
-                            args[index++] = joinpoint.getTargetObject();
-    
-                            break;
-                        }
-                        case ARGS_VAR: {
-                            Object[] arguments = joinpoint.getArguments();
-                            args[index++] = arguments[entry.getValue().getArgsIndex()];
-
-                            break;
-                        }
-                        default:
-                            break;
-                        }
-                }
-                return args;
-            }
-        }
-
-
-        /**
-         * {@link io.gemini.api.aop.Advice.Before} adapter that invokes the AspectJ before-advice
-         * method via a cached {@link MethodHandle}.
-         */
-        static class BeforeAdviceAdapter extends AbstractAdapter implements Advice.Before<Object, Throwable> {
-
-            private final MethodHandle beforeAdviceMethod;
-
-            public BeforeAdviceAdapter(AspectJAdviceSpec.Loaded adviceSpec, Object delegate)
-                    throws ClassNotFoundException, NoSuchMethodException, IllegalAccessException {
-                super(adviceSpec, delegate);
-
-                this.beforeAdviceMethod = getAdviceMethod(adviceSpec, delegate.getClass()).bindTo(delegate);
-            }
-
-            /**
-             *  {@inheritDoc}
-             */
-            @Override
-            public void before(MutableJoinpoint<Object, Throwable> joinpoint) throws Throwable {
-                Object[] args = getArguments(joinpoint);
-                beforeAdviceMethod.invokeWithArguments(args);
-            }
-        }
-
-
-        /**
-         * {@link io.gemini.api.aop.Advice.After} adapter that invokes the AspectJ after-advice
-         * method via a cached {@link MethodHandle}.
-         */
-        static class AfterAdviceAdapter extends AbstractAdapter implements Advice.After<Object, Throwable> {
-
-            private final MethodHandle afterAdviceMethod;
-
-            public AfterAdviceAdapter(AspectJAdviceSpec.Loaded adviceSpec, Object delegate)
-                    throws ClassNotFoundException, NoSuchMethodException, IllegalAccessException {
-                super(adviceSpec, delegate);
-
-                this.afterAdviceMethod = getAdviceMethod(adviceSpec, delegate.getClass()).bindTo(delegate);
-            }
-
-            /**
-             *  {@inheritDoc}
-             */
-            @Override
-            public void after(MutableJoinpoint<Object, Throwable> joinpoint) throws Throwable {
-                Object[] args = getArguments(joinpoint);
-                afterAdviceMethod.invokeWithArguments(args);
             }
         }
     }

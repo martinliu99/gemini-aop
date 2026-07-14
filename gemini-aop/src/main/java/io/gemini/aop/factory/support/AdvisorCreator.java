@@ -338,6 +338,10 @@ public interface AdvisorCreator {
          */
         @Override
         public Advice getAdvice() {
+            Class<? extends Advice> adviceClass = getAdviceClass();
+            if (adviceClass == null)
+                return null;
+
             return adviceCreator.createInstance(advisorContext, advisorSpec, adviceClass);
         }
     }

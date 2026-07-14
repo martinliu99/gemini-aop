@@ -625,8 +625,11 @@ public interface Joinpoints {
             for (Iterator<? extends Advisor> iterator = advisors.iterator(); iterator.hasNext(); ) {
                 Advisor advisor = iterator.next();
                 Class<? extends Advice> adviceClass = advisor.getAdviceClass();
-                if (adviceClass == null)
+                if (adviceClass == null) {
                     iterator.remove();
+
+                    continue;
+                }
 
                 boolean isBeforeAdvice = Advice.Before.class.isAssignableFrom(adviceClass);
                 boolean isAfterAdvice = Advice.After.class.isAssignableFrom(adviceClass);
@@ -635,8 +638,11 @@ public interface Joinpoints {
                 }
 
                 Advice advice = advisor.getAdvice();
-                if (advice == null)
+                if (advice == null) {
                     iterator.remove();
+
+                    continue;
+                }
 
                 if (isBeforeAdvice == true && isAfterAdvice == true) {
                     beforeAdvices.add( (Advice.Before<T, E>) advice );
@@ -970,8 +976,11 @@ public interface Joinpoints {
             for (Iterator<? extends Advisor> iterator = advisors.iterator(); iterator.hasNext(); ) {
                 Advisor advisor = iterator.next();
                 Class<? extends Advice> adviceClass = advisor.getAdviceClass();
-                if (adviceClass == null)
+                if (adviceClass == null) {
                     iterator.remove();
+
+                    continue;
+                }
 
                 boolean isAroundAdvice = Advice.Around.class.isAssignableFrom(adviceClass);
                 if (isAroundAdvice == false) {
@@ -979,8 +988,11 @@ public interface Joinpoints {
                 }
 
                 Advice.Around<T, Throwable> advice = (Advice.Around<T, Throwable>) advisor.getAdvice();
-                if (advice == null)
+                if (advice == null) {
                     iterator.remove();
+
+                    continue;
+                }
 
                 aroundAdvices.add(advice);
             }

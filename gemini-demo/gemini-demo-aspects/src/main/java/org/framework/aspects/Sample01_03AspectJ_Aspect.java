@@ -70,7 +70,7 @@ public class Sample01_03AspectJ_Aspect {
 
 
     // refer to named pointcut in another class
-    @AfterReturning(pointcut = "org.framework.aspects.Sample01_03AspectJ_Aspect$CommonPointcuts.process()", returning="returning")
+    @AfterReturning(pointcut = "org.framework.aspects.Sample01_03AspectJ_Aspect$CommonPointcuts.process()", returning="returning", argNames = "returning")
     public Object after(MutableJoinpoint<Response<String>, RuntimeException> joinpoint, Response<String> returning) throws Throwable {
         if (LOGGER.isInfoEnabled())
             LOGGER.info("Exited '{}' with args: {}", joinpoint.getTargetObject(), joinpoint.getArguments());
