@@ -47,7 +47,7 @@ public class OnConstructorCondition implements ElementMatcher<MatchingContext> {
      */
     @Override
     public boolean matches(MatchingContext context) {
-        if (context.hasConstructor(constructorExpression) == false)
+        if (!context.hasConstructor(constructorExpression))
             throw new MissingElementException("Missing constructor required by expression.", constructorExpression);
 
         return true;

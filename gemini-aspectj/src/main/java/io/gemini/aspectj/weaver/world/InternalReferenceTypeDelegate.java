@@ -201,7 +201,7 @@ class InternalReferenceTypeDelegate implements ReferenceTypeDelegate {
     }
 
     private RetentionPolicy getRetentionPolicyInternal() {
-        if (this.typeDescription.getDeclaredAnnotations().isAnnotationPresent(Retention.class) == false) 
+        if (!this.typeDescription.getDeclaredAnnotations().isAnnotationPresent(Retention.class)) 
             return null;
 
         AnnotationDescription annotationDescription = this.typeDescription.getDeclaredAnnotations()
@@ -863,12 +863,12 @@ class InternalReferenceTypeDelegate implements ReferenceTypeDelegate {
             if (parameterTypes != null)
                 return parameterTypes;
 
-            ParameterList<?> baseParamTypes =  methodDescription.getParameters();
-            TypeDescription[] ajParamTypes = new TypeDescription[baseParamTypes.size()];
-            for (int i = 0; i < ajParamTypes.length; i++) {
-                ajParamTypes[i] = baseParamTypes.get(i).getType().asErasure();
+            ParameterList<?> baseParameterTypes =  methodDescription.getParameters();
+            TypeDescription[] ajParameterTypes = new TypeDescription[baseParameterTypes.size()];
+            for (int i = 0; i < ajParameterTypes.length; i++) {
+                ajParameterTypes[i] = baseParameterTypes.get(i).getType().asErasure();
             }
-            return (parameterTypes = ajParamTypes);
+            return (parameterTypes = ajParameterTypes);
         }
 
         /**
@@ -965,7 +965,7 @@ class InternalReferenceTypeDelegate implements ReferenceTypeDelegate {
 
         private void setResolutionLevel(ResolutionLevel resolutionLevel) {
             TypeDescription typeDescription = getTypeDescription();
-            if (typeDescription instanceof TypeResolutionInspector == false)
+            if (!(typeDescription instanceof TypeResolutionInspector))
                 return;
 
             ((TypeResolutionInspector) typeDescription).setResolutionLevel(resolutionLevel);;

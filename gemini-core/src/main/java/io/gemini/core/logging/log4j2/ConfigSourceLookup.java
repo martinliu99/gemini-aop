@@ -69,7 +69,7 @@ public class ConfigSourceLookup extends AbstractLookup implements LoggerContextA
      */
     @Override
     public String lookup(LogEvent event, String key) {
-        if (configSource.containsKey(key) == false)
+        if (!configSource.containsKey(key))
             return null;
 
         Object value = configSource.getValue(key);

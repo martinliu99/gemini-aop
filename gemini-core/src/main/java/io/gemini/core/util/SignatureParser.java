@@ -28,7 +28,6 @@ import net.bytebuddy.jar.asm.signature.SignatureVisitor;
 /**
  * Resolving type, method or field signature with ASM {@code SignatureParser}.
  *
- * TODO: support type variable, wild card, etc.
  * @author   martin.liu
  */
 public final class SignatureParser {
@@ -51,9 +50,15 @@ public final class SignatureParser {
 
     public interface TypeSignature {
 
+        boolean containTypeVairable();
+
         TypeDefinition.Sort getSort();
 
         String getTypeName();
+
+        String getGenericName();
+
+        TypeSignature getComponentType();
 
         List<? extends TypeSignature> getTypeArguments();
     }
@@ -132,14 +137,27 @@ public final class SignatureParser {
 
     protected static class TypeSignatureVisitor extends SignatureVisitor implements TypeSignature {
 
-        private TypeDefinition.Sort sort;
-        private String typeName = "";
+        private static final String ARRAY = "[]";
 
+        private static final char ARRAY_SYMBOL = '[';
+        private static final char WILDCARD_SYMBOL = '?';
+
+        private TypeDefinition.Sort sort;
+        private String typeName;
+        private String genericName;
+
+        private TypeSignatureVisitor componentType;
         private List<TypeSignatureVisitor> typeArgumentVisitors = new ArrayList<>();
 
 
         protected TypeSignatureVisitor() {
+            this("");
+        }
+
+        protected TypeSignatureVisitor(String typeName) {
             super(Opcodes.ASM9);
+
+            this.typeName = typeName;
         }
 
 
@@ -147,7 +165,19 @@ public final class SignatureParser {
          * {@inheritDoc}
          */
         @Override
+        public boolean containTypeVairable() {
+            return false;
+        }
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
         public TypeDefinition.Sort getSort() {
+            if (sort == null) {
+                sort = getComponentType().getSort() == TypeDefinition.Sort.NON_GENERIC
+                        ? TypeDefinition.Sort.NON_GENERIC : TypeDefinition.Sort.GENERIC_ARRAY;
+            }
             return sort;
         }
 
@@ -156,7 +186,48 @@ public final class SignatureParser {
          */
         @Override
         public String getTypeName() {
+            if ("".equals(typeName)) {
+                TypeSignature componentType = getComponentType();
+                if (componentType != null) {
+                    String name = componentType.getTypeName();
+                    if (name.charAt(0) != ARRAY_SYMBOL && !name.endsWith(ARRAY))
+                        this.typeName = TypeDefinition.Sort.VARIABLE == componentType.getSort() 
+                            ? name + ARRAY : ARRAY_SYMBOL + "L" + name + ";";
+                    else
+                        this.typeName = name.endsWith(ARRAY) ? name + "[]" : ARRAY_SYMBOL + name;
+                }
+            }
             return typeName;
+        }
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public String getGenericName() {
+            if (genericName == null) {
+                StringBuilder sBuilder = new StringBuilder(
+                        getComponentType() == null ? getTypeName() : componentType.getGenericName() + ARRAY);
+
+                if (typeArgumentVisitors.size() != 0) {
+                    sBuilder.append("<");
+                    for (TypeSignature type : typeArgumentVisitors)
+                        sBuilder.append(type.getGenericName()).append(", ");
+                    sBuilder.delete(sBuilder.length() - 2, sBuilder.length())
+                    .append(">");
+                }
+
+                this.genericName = sBuilder.toString();
+            }
+            return genericName;
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public TypeSignature getComponentType() {
+            return componentType;
         }
 
         /** 
@@ -173,10 +244,7 @@ public final class SignatureParser {
          */
         @Override
         public SignatureVisitor visitArrayType() {
-            sort = TypeDefinition.Sort.NON_GENERIC;
-
-            typeName += "[";
-            return this;
+            return (componentType = new TypeSignatureVisitor());
         }
 
         /** 
@@ -187,7 +255,7 @@ public final class SignatureParser {
             sort = TypeDefinition.Sort.NON_GENERIC;
 
             String desc = descriptor + "";
-            typeName += typeName.length() ==0 ? Type.getType(desc).getClassName() : desc;
+            typeName += typeName.length() == 0 ? Type.getType(desc).getClassName() : desc;
         }
 
         /** 
@@ -195,10 +263,18 @@ public final class SignatureParser {
          */
         @Override
         public void visitClassType(String name) {
-            sort = TypeDefinition.Sort.NON_GENERIC;
-
             name = name.replace("/", ".");
-            typeName += typeName.length() ==0 ? name : "L" + name + ";";
+
+            char firstChar = typeName.length() == 0 ? '\0' : typeName.charAt(0);
+            if (WILDCARD_SYMBOL == firstChar) {
+                typeName +=  name;
+
+                sort = TypeDefinition.Sort.WILDCARD;
+            } else {
+                typeName = name;
+
+                sort = TypeDefinition.Sort.NON_GENERIC;
+            }
         }
 
         /** 
@@ -206,7 +282,16 @@ public final class SignatureParser {
          */
         @Override
         public void visitTypeVariable(final String name) {
-            sort = TypeDefinition.Sort.VARIABLE;
+            char firstChar = typeName.length() == 0 ? '\0' : typeName.charAt(0);
+            if (WILDCARD_SYMBOL == firstChar) {
+                typeName +=  name;
+
+                sort = TypeDefinition.Sort.WILDCARD;
+            } else {
+                typeName = name;
+
+                sort = TypeDefinition.Sort.VARIABLE;
+            }
         }
 
         /** 
@@ -216,8 +301,14 @@ public final class SignatureParser {
         public SignatureVisitor visitTypeArgument(char wildcard) {
             sort = TypeDefinition.Sort.PARAMETERIZED;
 
-            TypeSignatureVisitor typeVisitor = new TypeSignatureVisitor();
+            String typeName = "";
+            if (SignatureVisitor.EXTENDS == wildcard)
+                typeName = "? extends ";
+            else if (SignatureVisitor.SUPER == wildcard)
+                typeName = "? super ";
+            TypeSignatureVisitor typeVisitor = new TypeSignatureVisitor(typeName);
             typeArgumentVisitors.add(typeVisitor);
+
             return typeVisitor;
         }
     }

@@ -140,7 +140,7 @@ class DefaultAdvisorFactory implements AdvisorFactory {
         this.doCreateAdvisors(factoryContext.getClassLoader(), null, true)
         .stream()
         .filter( a -> {
-            if (a instanceof Advisor.IllegalAdvisor == false)
+            if (!(a instanceof Advisor.IllegalAdvisor))
                 return true;
 
             Advisor.IllegalAdvisor illegalAdvisor = (Advisor.IllegalAdvisor) a;
@@ -236,7 +236,7 @@ class DefaultAdvisorFactory implements AdvisorFactory {
         long startedAt = System.nanoTime();
 
         String factoryName = factoryContext.getFactoryName();
-        if (validateCreation == false && LOGGER.isDebugEnabled())
+        if (!validateCreation && LOGGER.isDebugEnabled())
             LOGGER.debug("^Creating Advisors via AdvisorCreator under '{}' for '{}', \n"
                     + "  {} \n", 
                     factoryName, targetClassLoader,
@@ -259,7 +259,7 @@ class DefaultAdvisorFactory implements AdvisorFactory {
         .collect( Collectors.toList() );
 
 
-        if (validateCreation == false && LOGGER.isInfoEnabled()) {
+        if (!validateCreation && LOGGER.isInfoEnabled()) {
             if (aopContext.getDiagnosticLevel().isDebugEnabled() && advisors.size() > 0) 
                 LOGGER.info("$Took '{}' seconds to create {} Advisors under '{}' for '{}', \n"
                         + "  {} \n", 
@@ -312,7 +312,7 @@ class DefaultAdvisorFactory implements AdvisorFactory {
      */
     protected Advisor.PointcutAdvisor doFastMatchAdvisor(TypeDescription targetType, Advisor advisor) {
         try {
-            if (advisor instanceof Advisor.PointcutAdvisor == false)
+            if (!(advisor instanceof Advisor.PointcutAdvisor))
                 return null;
 
             Advisor.PointcutAdvisor pointcutAdvisor = (Advisor.PointcutAdvisor) advisor;
@@ -320,7 +320,7 @@ class DefaultAdvisorFactory implements AdvisorFactory {
             if (pointcut == null || pointcut.getTypeMatcher() == null)
                 return null;
 
-            if (pointcut.getTypeMatcher().matches(targetType) == false)
+            if (!pointcut.getTypeMatcher().matches(targetType))
                 return null;
 
             return pointcutAdvisor;
@@ -351,11 +351,10 @@ class DefaultAdvisorFactory implements AdvisorFactory {
             if (targetMethod.isAbstract()
                     || (targetMethod.isSynthetic() && !targetMethod.isBridge()) )
                 continue;
-
             List<Advisor> candidateAdvisors = new ArrayList<>();
             for (Advisor.PointcutAdvisor pointcutAdvisor : pointcutAdvisors) {
-                if (doMatchAdvisor(targetType, targetClassLoader, targetModule, 
-                        targetMethod, pointcutAdvisor) == false)
+                if (!doMatchAdvisor(targetType, targetClassLoader, targetModule, 
+                        targetMethod, pointcutAdvisor))
                     continue;
 
                 candidateAdvisors.add(pointcutAdvisor);
@@ -399,7 +398,7 @@ class DefaultAdvisorFactory implements AdvisorFactory {
             ClassLoader targetClassLoader, JavaModule targetModule, 
             InDefinedShape targetMethod, Advisor.PointcutAdvisor pointcutAdvisor) {
         try {
-            if (pointcutAdvisor.getPointcut().getMethodMatcher().matches(targetMethod) == false)
+            if (!pointcutAdvisor.getPointcut().getMethodMatcher().matches(targetMethod))
                 return false;
 
             return true;
@@ -656,7 +655,7 @@ class DefaultAdvisorFactory implements AdvisorFactory {
             try {
                 return (advisors = super.doCreateAdvisors(targetClassLoader, targetJavaModule, validCreation));
             } finally {
-                if (validCreation == false) {
+                if (!validCreation) {
                     AopMetrics.currentTypeMetrics().incrAdvisorCreationCount(advisors.size());
                     AopMetrics.currentTypeMetrics().incrAdvisorCreationTime(System.nanoTime() - startedAt);
                 }

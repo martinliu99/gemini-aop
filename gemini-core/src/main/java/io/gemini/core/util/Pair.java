@@ -83,7 +83,7 @@ public class Pair<L, R> {
             return true;
         if (obj == null)
             return false;
-        if (obj instanceof Pair == false)
+        if (!(obj instanceof Pair))
             return false;
         
         @SuppressWarnings("unchecked")

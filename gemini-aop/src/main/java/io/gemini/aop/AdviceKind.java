@@ -69,7 +69,7 @@ public interface AdviceKind {
                 return AROUND;
             else if (beforeAdvice && afterAdvice)
                 return BEFORE_AFTER;
-            else if (beforeAdvice == false)
+            else if (!beforeAdvice)
                 return AFTER;
             else
                 return BEFORE;
@@ -197,7 +197,7 @@ public interface AdviceKind {
         public static ByteBuddyAdviceKind parse(boolean onMethodEnter, boolean onMethodExit) {
             if (onMethodEnter && onMethodExit)
                 return ON_METHOD_ENTER_EXIT;
-            else if (onMethodEnter == false)
+            else if (!onMethodEnter)
                 return ON_METHOD_EXIT;
             else
                 return ON_METHOD_ENTER;

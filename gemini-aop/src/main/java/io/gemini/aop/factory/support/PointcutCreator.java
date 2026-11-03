@@ -143,7 +143,7 @@ public interface PointcutCreator {
         public Pointcut create(AdvisorContext advisorContext, PointcutAdvisorSpec advisorSpec) {
             AdviceSpec adviceSpec = advisorSpec.getAdviceSpec();
             PointcutSpec pointcutSpec = advisorSpec.getPointcutSpec();
-            if (advisorSpec == null || adviceSpec == null || pointcutSpec == null || supports(advisorSpec) == false)
+            if (advisorSpec == null || adviceSpec == null || pointcutSpec == null || !supports(advisorSpec))
                 return null;
 
             // 1.try to create Pointcut
@@ -167,7 +167,7 @@ public interface PointcutCreator {
 
                 throw new IllegalSpecException();
             } catch (ExprParser.ExprLintException e) {
-                if (advisorContext.isValidateContext() == false && LOGGER.isWarnEnabled()) {
+                if (!advisorContext.isValidateContext() && LOGGER.isWarnEnabled()) {
                     LOGGER.warn("Ignored AdvisorSpec with lint PointcutExpression. \n"
                             + "  AdvisorName:{} \n"
                             + "  PointcutExpression: {} \n"
@@ -180,7 +180,7 @@ public interface PointcutCreator {
                     );
                 }
             } catch (ExprParser.ExprUnknownException e) {
-                if (advisorContext.isValidateContext() == false && LOGGER.isWarnEnabled()) {
+                if (!advisorContext.isValidateContext() && LOGGER.isWarnEnabled()) {
                     Throwable cause = e.getCause();
                     LOGGER.warn("Ignored AdvisorSpec with illegal PointcutExpression. \n"
                             + "  AdvisorName:{} \n"
@@ -195,7 +195,7 @@ public interface PointcutCreator {
                     );
                 }
             } catch (Exception e) {
-                if (advisorContext.isValidateContext() == false && LOGGER.isWarnEnabled()) {
+                if (!advisorContext.isValidateContext() && LOGGER.isWarnEnabled()) {
                     LOGGER.warn("Ignored AdvisorSpec with illegal PointcutExpression. \n"
                             + "  AdvisorName:{} \n"
                             + "  ClassLoader: {} \n"
@@ -213,12 +213,12 @@ public interface PointcutCreator {
 
             // 2.validate Pointcut
             try {
-                if (this.doValidatePointcut(advisorContext, pointcut) == false)
+                if (!this.doValidatePointcut(advisorContext, pointcut))
                     return null;
             } catch (IllegalSpecException e) {
                 throw e;
             } catch (Exception e) {
-                if (advisorContext.isValidateContext() == false && LOGGER.isWarnEnabled())
+                if (!advisorContext.isValidateContext() && LOGGER.isWarnEnabled())
                     LOGGER.warn("Ignored AdvisorSpec with illegal Pointcut. \n"
                             + "  AdvisorName:{} \n"
                             + "  ClassLoader: {} \n"
@@ -305,7 +305,7 @@ public interface PointcutCreator {
         @Override
         protected Pointcut doCreatePointcut(AdvisorContext advisorContext, AdviceSpec adviceSpec, ExprPointcutSpec pointcutSpec) {
             String pointcutExpression = pointcutSpec.getPointcutExpression();
-            if (StringUtils.hasText(pointcutExpression) == false) {
+            if (!StringUtils.hasText(pointcutExpression)) {
                 return null;
             }
 
@@ -344,7 +344,7 @@ public interface PointcutCreator {
         protected ExprPointcut doCreatePointcut(AdvisorContext advisorContext, AspectJAdviceSpec.Loaded adviceSpec, 
                 AspectJPointcutSpec pointcutSpec) {
             String pointcutExpression = pointcutSpec.getPointcutExpression();
-            if (StringUtils.hasText(pointcutExpression) == false) {
+            if (!StringUtils.hasText(pointcutExpression)) {
                 return null;
             }
 

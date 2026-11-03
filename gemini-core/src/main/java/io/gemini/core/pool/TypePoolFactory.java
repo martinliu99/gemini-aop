@@ -258,7 +258,7 @@ public interface TypePoolFactory {
         @Override
         public Resolution removeTypeResolution(ClassLoader classLoader, JavaModule javaModule, String typeName) {
             TypePool originTypePool = createTypePool(classLoader, javaModule);
-            if (originTypePool instanceof ExplicitTypePool == false)
+            if (!(originTypePool instanceof ExplicitTypePool))
                 return null;
 
             ExplicitTypePool explicitTypePool = (ExplicitTypePool) originTypePool;

@@ -69,7 +69,7 @@ public class UnpackedArchiveConfig implements LauncherConfig {
         this.launchedAt = System.nanoTime();
 
         this.launchPath = launchPath;
-        if (Files.exists(launchPath) == false || Files.isDirectory(launchPath) == false)
+        if (!Files.exists(launchPath) || !Files.isDirectory(launchPath))
             throw new IllegalArgumentException("Illegal launchPath [" + this.launchPath + "]");
 
         this.launchArgs = Collections.unmodifiableMap(

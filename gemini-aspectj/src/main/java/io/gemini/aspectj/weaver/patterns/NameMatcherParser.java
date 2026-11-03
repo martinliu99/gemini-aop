@@ -88,7 +88,7 @@ enum NameMatcherParser {
      *         is too complex for simple string matching
      */
     public ElementMatcher<String> parseMatcher(String expression) {
-        if (StringUtils.hasText(expression) == false)
+        if (!StringUtils.hasText(expression))
             return ElementMatchers.none();
 
         expression = expression.trim();

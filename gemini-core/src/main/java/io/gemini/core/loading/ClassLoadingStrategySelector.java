@@ -57,7 +57,7 @@ public interface ClassLoadingStrategySelector {
          */
         @Override
         public ClassLoadingStrategy<? super ClassLoader> select(Class<?> scopeType) {
-            if (ClassInjector.UsingLookup.isAvailable() == false)
+            if (!ClassInjector.UsingLookup.isAvailable())
                 return FOR_UNSAFE_INJECTION;
 
             return new WithLookup(

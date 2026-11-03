@@ -594,7 +594,7 @@ public class FactoryContext implements Closeable {
             return true;
         if (obj == null)
             return false;
-        if (obj instanceof FactoryContext == false)
+        if (!(obj instanceof FactoryContext))
             return false;
         FactoryContext other = (FactoryContext) obj;
         if (factoryName == null) {

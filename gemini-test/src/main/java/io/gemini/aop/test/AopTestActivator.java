@@ -86,7 +86,7 @@ public class AopTestActivator implements LauncherDiscoveryListener, TestExecutio
     @Override
     public void launcherDiscoveryStarted(LauncherDiscoveryRequest request) {
         // launch AopLauncher and load all advisors
-        if (LAUNCHED == false) {
+        if (!LAUNCHED) {
             try {
                 launch();
 
@@ -104,7 +104,7 @@ public class AopTestActivator implements LauncherDiscoveryListener, TestExecutio
         URL rootResource = AopTestActivator.class.getClassLoader().getResource("");
         String launchLocation = new File(rootResource.toURI()).getParentFile().getPath() + File.separator + "aop-int-test" + File.separator;
         Path launchPath = Paths.get(launchLocation);
-        if (Files.exists(launchPath) == false)
+        if (!Files.exists(launchPath))
             Files.createDirectory( launchPath);
 
         List<Path> classPaths = ClassLoaderUtils.getClassPaths();
@@ -219,7 +219,7 @@ public class AopTestActivator implements LauncherDiscoveryListener, TestExecutio
         try (Stream<Path> stream = Files.walk(classPath)) {
             stream
             .filter( Files::isRegularFile )
-            .filter( p -> p.toString().endsWith(ClassUtils.CLASS_FILE_EXTENSION) == false )
+            .filter( p -> !p.toString().endsWith(ClassUtils.CLASS_FILE_EXTENSION) )
             .forEach( p -> {
                 try {
                     String path = classPath.relativize(p.normalize()).toString().replace('\\', ClassUtils.RESOURCE_SPERATOR);

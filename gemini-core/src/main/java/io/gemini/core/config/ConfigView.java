@@ -169,7 +169,7 @@ public interface ConfigView {
 
     /**
      * Returns the value for the given key, converted using the given {@link Converter},
-     * with optional placeholder resolution, returning a default if absent.
+     * with optional placeholder resolution, returnS a default if absent.
      *
      * @param key                 the configuration key
      * @param defaultValue        the value to return if the key is absent
@@ -472,7 +472,7 @@ public interface ConfigView {
 
 
         private Object getValue(String key, boolean resolvePlaceholders) throws ConfigNotFoundException {
-            if (this.containsKey(key) == false)
+            if (!this.containsKey(key))
                 throw new ConfigNotFoundException(key);
 
             Object value = this.doGetValue(key);
@@ -480,7 +480,7 @@ public interface ConfigView {
                 throw new ConfigNotFoundException(key);
 
             // try to replace placeholders
-            if (resolvePlaceholders == true && value instanceof String) {
+            if (resolvePlaceholders && value instanceof String) {
                 value = this.placeholderHelper.replace( (String)value );
             }
 
@@ -610,7 +610,7 @@ public interface ConfigView {
          */
         @Override
         public boolean containsKey(String key) {
-            if (super.containsKey(key) == true)
+            if (super.containsKey(key))
                 return true;
 
             return parent.containsKey(key);

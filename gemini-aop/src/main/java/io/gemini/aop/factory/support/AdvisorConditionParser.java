@@ -165,9 +165,6 @@ public abstract class AdvisorConditionParser {
                         .prepare((Class<? extends Annotation>) classLoader.loadClass(conditionalClass.getTypeName()) )
                         .load();
 
-                //                Map<String, Object> attributeValues = conditionalClass.getTypeName().equals(Conditional.class.getName())
-//                        ? Collections.emptyMap() : ReflectionUtils.getAttributeValues(annotationDescription, annotation);
-
                 // create condition class instance with annotation
                 conditions.add( 
                         (ElementMatcher<? super MatchingContext>) objectFactory.createObject(conditionClass, annotation));

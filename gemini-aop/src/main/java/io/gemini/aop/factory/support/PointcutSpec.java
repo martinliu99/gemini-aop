@@ -21,7 +21,7 @@ import io.gemini.core.util.Assert;
 /**
  * Describes the pointcut specification for a {@link AdvisorSpec.PointcutAdvisorSpec}.
  * <p>
- * Validates that the advice method's parameterized returning and throwing types are
+ * Validates that the advice method's parameterized return and throw types are
  * compatible with the target method's actual return and exception types for the matched
  * target type.
  * 
@@ -54,7 +54,7 @@ public interface PointcutSpec {
 
 
     /**
-     * Abstract base providing returning/throwing type compatibility validation
+     * Abstract base providing return/throw type compatibility validation
      * against the target method's actual return and exception types.
      */
     abstract class AbstractBase implements PointcutSpec {
@@ -170,8 +170,7 @@ public interface PointcutSpec {
 
 
         /**
-         * Default {@link AspectJPointcutSpec} implementation that additionally validates
-         * advice returning/throwing parameter types against the target method.
+         * Default {@link AspectJPointcutSpec} implementation.
          */
         class Default extends PointcutSpec.AbstractBase implements AspectJPointcutSpec {
 

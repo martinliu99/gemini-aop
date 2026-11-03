@@ -166,7 +166,7 @@ public interface TaskExecutor {
             this.inParallel = inParallel;
             this.taskTimeoutMs = taskTimeoutMs;
 
-            if (this.inParallel == true) {
+            if (this.inParallel) {
                 executorService = Executors.newCachedThreadPool( 
                         new DaemonThreadFactory(executorName) );
 
@@ -198,7 +198,7 @@ public interface TaskExecutor {
                 return Collections.emptyList();
 
             // execute sequentially or in parallel
-            if (parallel == false || inParallel == false || terminated == true)
+            if (!parallel || !inParallel || terminated)
                 return executeTaskSequentially(tasks, taskExecutor);
 
             return executeTasksInParallel(splitTasks(tasks, batchCount), taskExecutor, executionWrapper, tasks.size());
@@ -287,7 +287,7 @@ public interface TaskExecutor {
          */
         @Override
         public void shutdown() {
-            if (inParallel == false || terminated == true)
+            if (!inParallel || terminated)
                 return;
 
             terminated = true;
@@ -295,7 +295,7 @@ public interface TaskExecutor {
             ExecutorService executor = this.executorService;
             this.executorService = null;
             if (executor == null) return;
-            if (executor.isShutdown() == true) return;
+            if (executor.isShutdown()) return;
 
             // shut down execute
             executor.shutdown();

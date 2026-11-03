@@ -281,7 +281,7 @@ public class AopMetrics {
         WeaverMetrics launcherStartupMetrics = this.newWeaverMetricsSummary();
 
         if (LOGGER.isInfoEnabled()) {
-            if (diagnosticLevel.isSimpleEnabled() == false) 
+            if (!diagnosticLevel.isSimpleEnabled()) 
                 LOGGER.info("$Took '{}' seconds to activate Gemini. \n"
                         + "{} \n"
                         + "{} \n", 
@@ -311,7 +311,7 @@ public class AopMetrics {
         WeaverMetrics appStartupMetrics = this.newWeaverMetricsSummary();
 
         if (LOGGER.isInfoEnabled()) {
-            if (diagnosticLevel.isSimpleEnabled() == false) 
+            if (!diagnosticLevel.isSimpleEnabled()) 
                 LOGGER.info("$Took '{}' seconds to start application. \n"
                         + "{} \n",
                         (System.nanoTime() - launcherMetrics.getLauncherStartedAt()) / NANO_TIME,
@@ -449,7 +449,7 @@ public class AopMetrics {
 
             // collect raw metrics
             StringBuilder advisorSepcs = new StringBuilder();
-            if (CollectionUtils.isEmpty(launcherMetrics.getAdvisorSpecs()) == false) {
+            if (!CollectionUtils.isEmpty(launcherMetrics.getAdvisorSpecs())) {
                 for (Entry<String, Integer> entry : launcherMetrics.getAdvisorSpecs().entrySet()) {
                     advisorSepcs.append(entry.getKey()).append(": ").append(entry.getValue()).append(" specs, ");
                 }
@@ -616,7 +616,7 @@ public class AopMetrics {
          * @return the rendered type resolution report string, or {@code ""} if none
          */
         public String renderTypeResolutionTemplate(WeaverMetrics weaverMetrics) {
-            if (weaverMetrics.hasTypeResolution == false)
+            if (!weaverMetrics.hasTypeResolution)
                 return "";
 
             StringBuilder renderResult = new StringBuilder();

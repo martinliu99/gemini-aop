@@ -142,7 +142,7 @@ public interface ExplicitTypePool extends TypePool {
          */
         @Override
         public void addTypeResolution(String typeName, TypePool.Resolution resolution) {
-            if (StringUtils.hasText(typeName) == false || resolution == null) return;
+            if (!StringUtils.hasText(typeName) || resolution == null) return;
 
             this.resolutions.put(typeName, resolution);
         }
@@ -152,7 +152,7 @@ public interface ExplicitTypePool extends TypePool {
          */
         @Override
         public TypePool.Resolution removeTypeResolution(String typeName) {
-            if (StringUtils.hasText(typeName) == false) return null;
+            if (!StringUtils.hasText(typeName)) return null;
 
             return resolutions.remove(typeName);
         }

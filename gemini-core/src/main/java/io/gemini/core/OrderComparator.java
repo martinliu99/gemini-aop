@@ -38,11 +38,11 @@ public enum OrderComparator implements Comparator<Object> {
      * {@inheritDoc}
      */
     @Override
-    public int compare( Object o1,  Object o2) {
+    public int compare(Object o1,  Object o2) {
         return doCompare(o1, o2);
     }
 
-    private int doCompare( Object o1,  Object o2) {
+    private int doCompare(Object o1,  Object o2) {
         int i1 = getOrder(o1);
         int i2 = getOrder(o2);
 

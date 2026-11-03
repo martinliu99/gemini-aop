@@ -191,7 +191,7 @@ public interface AopWeaver extends RawMatcher, Transformer, Closeable {
             WeaverContext weaverContext = new WeaverContext(aopContext);
 
             // 2.create AopWeaver
-            DefaultAopWeaver aopWeaver = aopContext.getDiagnosticLevel().isSimpleEnabled() == false
+            DefaultAopWeaver aopWeaver = !aopContext.getDiagnosticLevel().isSimpleEnabled()
                     ? new DefaultAopWeaver(aopContext, advisorFactory, weaverContext)
                     : new DefaultAopWeaver.Diagnostic(aopContext, advisorFactory, weaverContext);
 
@@ -249,7 +249,7 @@ public interface AopWeaver extends RawMatcher, Transformer, Closeable {
                 .with( new ByteBuddy()
                         .with( MethodGraph.Compiler.ForDeclaredMethods.INSTANCE )
                 )
-                .ignore( BooleanMatcher.of(weaverContext.isEnableWeaver() == false) )
+                .ignore( BooleanMatcher.of(!weaverContext.isEnableWeaver() ) )
                 .with( aopWeaver )
                 .with( InjectionStrategy.Disabled.INSTANCE )
                 // support native method
@@ -274,7 +274,7 @@ public interface AopWeaver extends RawMatcher, Transformer, Closeable {
                 // warn up bootstrap ClassLoader
                 .warmUp( System.class )
                 .with( new DefaultTransformerInstallationListener() )
-                .with( aopContext.getDiagnosticLevel().isSimpleEnabled() == false
+                .with( !aopContext.getDiagnosticLevel().isSimpleEnabled()
                         ? new DefaultTransformationListener(aopContext)
                         : new DefaultTransformationListener.Diagnostic(aopContext) )
                 .with( InitializationStrategy.NoOp.INSTANCE )

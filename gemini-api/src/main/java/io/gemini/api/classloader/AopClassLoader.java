@@ -337,7 +337,7 @@ public abstract class AopClassLoader extends BaseClassLoader {
 
         /**
          * A composite {@link TypeFinder} that delegates to an ordered list of finders,
-         * returning the first non-null result found.
+         * and returns the first non-null result found.
          */
         static class FinderChain implements TypeFinder {
 

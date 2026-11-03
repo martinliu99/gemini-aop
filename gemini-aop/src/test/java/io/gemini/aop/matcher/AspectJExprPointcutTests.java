@@ -21,7 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.gemini.aop.matcher.ExprPointcut.AspectJExprPointcut;
-import io.gemini.aspectj.weaver.world.BytebuddyWorld;
+import io.gemini.aspectj.weaver.world.ByteBuddyWorld;
 import net.bytebuddy.agent.builder.AgentBuilder.PoolStrategy;
 import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.type.TypeDescription;
@@ -46,7 +46,7 @@ public class AspectJExprPointcutTests {
     public void testKindedExpression() {
         try {
             TypePool typePool = doCreateTypePools();
-            BytebuddyWorld typeWorld = new BytebuddyWorld(typePool, null);
+            ByteBuddyWorld typeWorld = new ByteBuddyWorld(typePool, null);
 
             //"execution(java.util.List<java.lang.String> io.gemini..*.PointcutParserTests.replace(..))";
             String expression = "execution(* io.gemini.aop.factory.support.AspectJExprPointcutTests.replace(..))";

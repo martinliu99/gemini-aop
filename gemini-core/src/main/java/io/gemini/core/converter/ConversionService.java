@@ -330,7 +330,7 @@ public interface ConversionService {
                     return true;
                 if (obj == null)
                     return false;
-                if (obj instanceof ConverterCacheKey == false)
+                if (!(obj instanceof ConverterCacheKey))
                     return false;
                 ConverterCacheKey other = (ConverterCacheKey) obj;
                 if (sourceTpe == null) {

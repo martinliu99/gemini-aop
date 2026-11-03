@@ -122,7 +122,7 @@ class FactoriesContext implements Closeable {
     }
 
     List<Set<String>> parseConflictTargetClassLoaders(String conflictTargetClassLoadersStr) {
-        if (StringUtils.hasText(conflictTargetClassLoadersStr) == false)
+        if (!StringUtils.hasText(conflictTargetClassLoadersStr))
             return new ArrayList<>();
 
         StringTokenizer groupSt = new StringTokenizer(conflictTargetClassLoadersStr, ";");
@@ -153,7 +153,7 @@ class FactoriesContext implements Closeable {
             String factoryName = entry.getKey();
 
             // filter aspect
-            if (enabledFactoryMatcher.matches(factoryName) == false) 
+            if (!enabledFactoryMatcher.matches(factoryName)) 
                 return null;
 
             factoryContexts.put(factoryName, 

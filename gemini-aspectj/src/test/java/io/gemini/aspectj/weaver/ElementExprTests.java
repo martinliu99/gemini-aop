@@ -373,7 +373,6 @@ public class ElementExprTests {
     @Test 
     public void test_performance() {
         TypePool typePool = new TypePool.Default(
-//                new CacheProvider.Simple.UsingSoftReference(), 
                 CacheProvider.NoOp.INSTANCE,
                 ClassFileLocator.ForClassLoader.ofSystemLoader(), 
                 ReaderMode.FAST
@@ -388,16 +387,10 @@ public class ElementExprTests {
         long matchingTime = 0 ;
         for (int i = 0; i < 3000; i++) {
             startedAt = System.nanoTime();
-//            TypeDescription typeDescription = typePool.describe(Sub.class.getName()).resolve();
             TypeDescription typeDescription = typePool.describe(getClass().getName()).resolve();
-
-//            try {
-//            TypeDescription typeDescription2 = typePool.describe(getClass().getName() + "i").resolve();
-//            } catch (Exception e) {}
 
             FastMatchInfo info = new FastMatchInfo(typeWorld.resolve(typeDescription), null, typeWorld.getWorld());
             resolvingTime += System.nanoTime() - startedAt;
-
 
             startedAt = System.nanoTime();
             for (int j = 0; j< 100; j++)

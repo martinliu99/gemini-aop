@@ -422,7 +422,7 @@ public interface ObjectFactory extends Closeable {
             List<T> objects = new ArrayList<>(classNames.size());
             for (String className : classNames) {
                 Class<T> canidateType = this.loadClass(className);
-                if (isInstantiatable(canidateType) == false) 
+                if (!isInstantiatable(canidateType)) 
                     continue;
 
                 try {
@@ -437,7 +437,7 @@ public interface ObjectFactory extends Closeable {
                         throw e;
                     else {
                         Throwable cause = Throwables.findCause(e);
-                        if (LOGGER.isWarnEnabled() && cause instanceof ObjectsException.SkippedObjectCreationException == false)
+                        if (LOGGER.isWarnEnabled() && !(cause instanceof ObjectsException.SkippedObjectCreationException))
                             LOGGER.warn("Could not instantiate class {}.", className, e);
                     }
                 }
@@ -516,22 +516,22 @@ public interface ObjectFactory extends Closeable {
                     for (Parameter parameter : constructor.getParameters()) {
                         // check annotation
                         for (Annotation annotation : parameter.getAnnotations()) {
-                            if (INJECTION_ANNOTATION.contains(annotation.annotationType().getName()) == true) {
+                            if (INJECTION_ANNOTATION.contains(annotation.annotationType().getName())) {
                                 candidate = true;
                                 break;
                             }
                         }
-                        if (candidate == false)
+                        if (!candidate)
                             continue;
 
                         // check parameter name and type
-                        String paramName = parameter.getName();
-                        if (this.objectMap.containsKey(paramName) == false) {
+                        String parameterName = parameter.getName();
+                        if (!this.objectMap.containsKey(parameterName)) {
                             candidate = false;
                             break;
                         }
 
-                        Object depentObj = this.objectMap.get(paramName);
+                        Object depentObj = this.objectMap.get(parameterName);
                         if (depentObj == null || parameter.getType() != depentObj.getClass()) {
                             candidate = false;
                             break;
@@ -577,21 +577,21 @@ public interface ObjectFactory extends Closeable {
 
                 boolean candidate = false;
                 for (Annotation annotation : method.getParameters()[0].getAnnotations()) {
-                    if (INJECTION_ANNOTATION.contains(annotation.annotationType().getName()) == true) {
+                    if (INJECTION_ANNOTATION.contains(annotation.annotationType().getName())) {
                         candidate = true;
                         break;
                     }
                 }
-                if (candidate == false) 
+                if (!candidate) 
                     continue;
 
                 // check parameter name and type
-                String paramName = parameter.getName();
-                if (this.objectMap.containsKey(paramName) == false) {
+                String parameterName = parameter.getName();
+                if (!this.objectMap.containsKey(parameterName)) {
                     continue;
                 }
 
-                Object depentObj = this.objectMap.get(paramName);
+                Object depentObj = this.objectMap.get(parameterName);
                 if (depentObj == null || parameter.getType() != depentObj.getClass()) {
                     continue;
                 }
@@ -607,17 +607,17 @@ public interface ObjectFactory extends Closeable {
 
                 boolean candidate = false;
                 for (Annotation annotation : field.getAnnotations()) {
-                    if (INJECTION_ANNOTATION.contains(annotation.annotationType().getName()) == true) {
+                    if (INJECTION_ANNOTATION.contains(annotation.annotationType().getName())) {
                         candidate = true;
                         break;
                     }
                 }
-                if (candidate == false) 
+                if (!candidate) 
                     continue;
 
                 // check field name and type
                 String fieldName = field.getName();
-                if (this.objectMap.containsKey(fieldName) == false) {
+                if (!this.objectMap.containsKey(fieldName)) {
                     continue;
                 }
 

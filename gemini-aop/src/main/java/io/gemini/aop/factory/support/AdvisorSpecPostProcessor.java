@@ -274,7 +274,7 @@ public interface AdvisorSpecPostProcessor {
                 Entry<String, AdvisorSpec> entry = iterator.next();
 
                 // filter advisorRepositry via advisorMatcher
-                if (factoryContext.isEnabledAdvisor(entry.getKey()) == false)
+                if (!factoryContext.isEnabledAdvisor(entry.getKey()))
                     iterator.remove();
             }
 

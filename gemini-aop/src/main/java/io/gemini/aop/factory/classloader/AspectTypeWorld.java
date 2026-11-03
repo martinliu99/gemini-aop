@@ -78,13 +78,13 @@ public class AspectTypeWorld extends ByteBuddyWorld {
         @Override
         public ResolvedType resolve(UnresolvedType unresolvedType, boolean allowMissing) {
             // 1.resolve target type firstly
-            if (!unresolvedType.isPrimitiveType() && unresolvedType instanceof UnresolvedAspectType == false) {
+            if (!unresolvedType.isPrimitiveType() && !(unresolvedType instanceof UnresolvedAspectType)) {
                 try {
                     ClassLoader targetCL = getAspectClassLoader().getTargetClassLoader();
                     TypeWorld targetTypeWorld = getTypeWorldFactory().createTypeWorld(targetCL, null);
 
                     ResolvedType resolvedType = targetTypeWorld.getWorld().resolve(unresolvedType, allowMissing);
-                    if (resolvedType != null && resolvedType.isMissing() == false)
+                    if (resolvedType != null && !resolvedType.isMissing())
                         return resolvedType;
                 } catch (Exception ignored) { /* do nothing */ }
             }

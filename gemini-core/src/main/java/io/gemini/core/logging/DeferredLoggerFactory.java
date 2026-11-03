@@ -154,7 +154,7 @@ public class DeferredLoggerFactory {
      * Enables deferred mode on all existing loggers and sets the factory flag.
      */
     private void enableDeferModeInternal() {
-        if (enableDeferMode == true)
+        if (enableDeferMode)
             return;
 
         // enable defer mode, and cache log messages
@@ -169,7 +169,7 @@ public class DeferredLoggerFactory {
      * @param loggingLevel the minimum level at which queued messages are replayed
      */
     private void replayDeferredMessagesInternal(Level loggingLevel) {
-        if (enableDeferMode == false)
+        if (!enableDeferMode)
             return;
 
         // disable defer mode, and log message in-time
@@ -201,7 +201,7 @@ public class DeferredLoggerFactory {
                         continue;
                     }
 
-                    if (deferMode == true)
+                    if (deferMode)
                         deferredLogger.enableDeferMode();
                     else
                         deferredLogger.disableDeferMode();
@@ -298,7 +298,7 @@ public class DeferredLoggerFactory {
             this.name = name;
             this.eventQueue = eventQueue;
 
-            if (enableDeferMode == true)
+            if (enableDeferMode)
                 this.enableDeferMode();
             else
                 this.disableDeferMode();
@@ -1299,7 +1299,7 @@ public class DeferredLoggerFactory {
         public boolean equals(Object o) {
             if (this == o)
                 return true;
-            if (o instanceof DeferredLogger == false)
+            if (!(o instanceof DeferredLogger))
                 return false;
 
             DeferredLogger that = (DeferredLogger) o;

@@ -214,8 +214,8 @@ public class AopClassLoaderConfigurer {
 
                     for (int i = invocationIndex; i < stackTraceElements.length - 1; i++) {
                         StackTraceElement stackTraceElement = stackTraceElements[i];
-                        if (stackTraceElement.getClassName().startsWith("java") == false 
-                                && stackTraceElement.getClassName().startsWith("net.bytebuddy") == false) {
+                        if (!stackTraceElement.getClassName().startsWith("java") 
+                                && !stackTraceElement.getClassName().startsWith("net.bytebuddy")) {
                             invocationStack = stackTraceElements[i];
                             break;
                         }

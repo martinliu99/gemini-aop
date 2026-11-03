@@ -17,6 +17,7 @@ package io.gemini.core.util;
 
 import java.lang.reflect.AccessibleObject;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +27,7 @@ import ch.qos.logback.classic.pattern.TargetLengthBasedClassNameAbbreviator;
 import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.method.ParameterDescription;
 import net.bytebuddy.description.type.TypeDescription;
+import net.bytebuddy.description.type.TypeDescription.Generic;
 
 /**
  * Utility class for class and type operations used throughout the AOP framework.
@@ -57,9 +59,12 @@ public abstract class ClassUtils {
 
 
     private static final Map<String, Class<?>> PRIMITIVE_TYPE_MAP;
-    private static final Map<Class<?>, Class<?>> PRIMITIVE_WRAPPER_MAP;
-    private static final Map<TypeDescription, TypeDescription> PRIMITIVE_TYPE_DEFINITION_MAP;
 
+    private static final Map<Class<?>, Class<?>> PRIMITIVE_WRAPPER_MAP;
+    private static final Map<TypeDescription, TypeDescription> PRIMITIVE_TYPE_DESCRIPTION_MAP;
+
+    private static final Map<Class<?>, List<Class<?>>> WIDENED_PRIMITIVE_MAP;
+    private static final Map<TypeDescription, List<TypeDescription>> WIDENED_PRIMITIVE_TYPE_DESCRIPTION_MAP;
 
     static {
         PRIMITIVE_WRAPPER_MAP = new LinkedHashMap<>();
@@ -87,11 +92,33 @@ public abstract class ClassUtils {
                 );
 
 
-        PRIMITIVE_TYPE_DEFINITION_MAP = PRIMITIVE_WRAPPER_MAP.entrySet().stream()
+        PRIMITIVE_TYPE_DESCRIPTION_MAP = PRIMITIVE_WRAPPER_MAP.entrySet().stream()
                 .collect(
                         Collectors.toMap(
                                 entry -> TypeDescription.ForLoadedType.of(entry.getKey()), 
                                 entry -> TypeDescription.ForLoadedType.of(entry.getValue())
+                        )
+                );
+
+
+        WIDENED_PRIMITIVE_MAP = new LinkedHashMap<>();
+        WIDENED_PRIMITIVE_MAP.put(void.class, Arrays.asList(void.class));
+        WIDENED_PRIMITIVE_MAP.put(boolean.class, Arrays.asList(boolean.class));
+        WIDENED_PRIMITIVE_MAP.put(byte.class, Arrays.asList(byte.class, short.class, int.class, long.class, float.class, double.class));
+        WIDENED_PRIMITIVE_MAP.put(short.class, Arrays.asList(short.class, int.class, long.class, float.class, double.class));
+        WIDENED_PRIMITIVE_MAP.put(char.class, Arrays.asList(char.class, int.class, long.class, float.class, double.class));
+        WIDENED_PRIMITIVE_MAP.put(int.class, Arrays.asList(int.class, long.class, float.class, double.class));
+        WIDENED_PRIMITIVE_MAP.put(long.class, Arrays.asList(long.class, float.class, double.class));
+        WIDENED_PRIMITIVE_MAP.put(float.class, Arrays.asList(float.class, double.class));
+        WIDENED_PRIMITIVE_MAP.put(double.class, Arrays.asList(double.class));
+
+        WIDENED_PRIMITIVE_TYPE_DESCRIPTION_MAP = WIDENED_PRIMITIVE_MAP.entrySet().stream()
+                .collect(
+                        Collectors.toMap(
+                                entry -> TypeDescription.ForLoadedType.of(entry.getKey()), 
+                                entry -> entry.getValue().stream()
+                                        .map( e -> TypeDescription.ForLoadedType.of(e) )
+                                        .collect( Collectors.toList())
                         )
                 );
     }
@@ -147,7 +174,7 @@ public abstract class ClassUtils {
      * @return the abbreviated class name
      */
     public static String abbreviateClassName(String className) {
-        if (StringUtils.hasText(className) == false)
+        if (!StringUtils.hasText(className))
             return "";
 
         String[] items = className.split("\\"+PACKAGE_SEPARATOR, -1);
@@ -207,113 +234,218 @@ public abstract class ClassUtils {
 
 
     /**
-     * Determines if {@code leftType} is the same as or a supertype of {@code rightType},
+     * Determines if {@code lhsType} is the same as or a supertype of {@code rhsType},
      * with support for primitive/wrapper boxing.
      *
-     * @param leftType  the potential supertype
-     * @param rightType the potential subtype
-     * @return {@code true} if {@code leftType} is assignable from {@code rightType}
+     * @param lhsType  the potential supertype
+     * @param rhsType the potential subtype
+     * @return {@code true} if {@code lhsType} is assignable from {@code rhsType}
      */
-    public static boolean isAssignableFrom(Class<?> leftType, Class<?> rightType) {
-        if (leftType == null || rightType == null)
+    public static boolean isAssignableFrom(Class<?> lhsType, Class<?> rhsType) {
+        if (lhsType == null || rhsType == null)
             return false;
 
-        if (isAssignablePrimitiveFrom(leftType, rightType) == true) {
+        if (isAssignablePrimitiveFrom(lhsType, rhsType, true)) {
             return true;
         }
 
-        return leftType.isAssignableFrom(rightType);
+        return lhsType.isAssignableFrom(rhsType);
     }
 
     /**
-     * Determines if {@code leftType} is the same as of {@code rightType},
+     * Determines if {@code lhsType} is the same as or a supertype of {@code rhsType},
+     * with support for primitive/wrapper boxing.
+     *
+     * @param lhsType  the potential supertype
+     * @param rhsType the potential subtype
+     * @param allowWrapperToPrimitive  assign wrapper type to corresponding promitive type
+     * @return {@code true} if {@code lhsType} is assignable from {@code rhsType}
+     */
+    public static boolean isAssignableFrom(Class<?> lhsType, Class<?> rhsType, boolean allowWrapperToPrimitive) {
+        if (lhsType == null || rhsType == null)
+            return false;
+
+        if (isAssignablePrimitiveFrom(lhsType, rhsType, allowWrapperToPrimitive)) {
+            return true;
+        }
+
+        return lhsType.isAssignableFrom(rhsType);
+    }
+
+    /**
+     * Determines if {@code lhsType} is the same as of {@code rhsType},
      * with support for primitive/wrapper boxing.
      * 
-     * @param leftType  the potential supertype
-     * @param rightType the potential subtype
-     * @return {@code true} if {@code leftType} is assignable from {@code rightType}
+     * @param lhsType  the potential supertype
+     * @param rhsType the potential subtype
+     * @param allowWrapperToPrimitive  assign wrapper type to corresponding promitive type
+     * @return {@code true} if {@code lhsType} is assignable from {@code rhsType}
      */
-    private static boolean isAssignablePrimitiveFrom(Class<?> leftType, Class<?> rightType) {
-        if (leftType.isPrimitive() && rightType.isPrimitive()) {
-            return leftType.equals(rightType);
-        } else if (leftType.isPrimitive()) {
-            Class<?> _leftType = PRIMITIVE_WRAPPER_MAP.get(leftType);
-            return _leftType != null && _leftType.isAssignableFrom(rightType);
-        } else if (rightType.isPrimitive()) {
-            Class<?> _rightType = PRIMITIVE_WRAPPER_MAP.get(rightType);
-            return _rightType != null && leftType.isAssignableFrom(_rightType);
+    private static boolean isAssignablePrimitiveFrom(Class<?> lhsType, Class<?> rhsType, boolean allowWrapperToPrimitive) {
+        if (lhsType.isPrimitive() && rhsType.isPrimitive()) {
+            return WIDENED_PRIMITIVE_MAP.get(rhsType).contains(lhsType);
+        } else if (allowWrapperToPrimitive && lhsType.isPrimitive()) {
+            Class<?> lhsWrapperType = PRIMITIVE_WRAPPER_MAP.get(lhsType);
+            return lhsWrapperType != null && lhsWrapperType.isAssignableFrom(rhsType);
+        } else if (rhsType.isPrimitive()) {
+            Class<?> rhsWrapperType = PRIMITIVE_WRAPPER_MAP.get(rhsType);
+            return rhsWrapperType != null && lhsType.isAssignableFrom(rhsWrapperType);
         } else {
             return false;
         }
     }
 
+
+
     /**
-     * Determines if {@code leftType} is the same as or a supertype of {@code rightType}
+     * Determines if {@code lhsType} is the same as or a supertype of {@code rhsType}
      * using ByteBuddy generic types, with support for primitive/wrapper boxing.
      *
-     * @param leftType  the potential supertype
-     * @param rightType the potential subtype
-     * @return {@code true} if {@code leftType} is assignable from {@code rightType}
+     * @param lhsType  the potential supertype
+     * @param rhsType the potential subtype
+     * @return {@code true} if {@code lhsType} is assignable from {@code rhsType}
      */
-    public static boolean isAssignableFrom(TypeDescription leftType, TypeDescription rightType) {
-        if (leftType == null || rightType == null)
-            return false;
-
-        // 1.void return
-        if (leftType.represents(void.class))
-            return true;
-
-        // 2.primitive return
-        if (isAssignablePrimitiveFrom(leftType, rightType) == true)
-            return true;
-
-        // 3.reference return 
-        return leftType.isAssignableFrom(rightType);
+    public static boolean isAssignableFrom(TypeDescription lhsType, TypeDescription rhsType) {
+        return isAssignableFrom(lhsType, rhsType, true);
     }
 
-    private static boolean isAssignablePrimitiveFrom(TypeDescription leftType, TypeDescription rightType) {
-        if (leftType.isPrimitive() && rightType.isPrimitive()) {
-            return leftType.equals(rightType);
-        } else if (leftType.isPrimitive()) {
-            TypeDescription _leftType = PRIMITIVE_TYPE_DEFINITION_MAP.get(leftType);
-            return _leftType != null && _leftType.isAssignableFrom(rightType);
-        } else if (rightType.isPrimitive()) {
-            TypeDescription _rightType = PRIMITIVE_TYPE_DEFINITION_MAP.get(rightType);
-            return _rightType != null && leftType.isAssignableFrom(_rightType);
+    /**
+     * Determines if {@code lhsType} is the same as or a supertype of {@code rhsType}
+     * using ByteBuddy generic types, with support for primitive/wrapper boxing.
+     *
+     * @param lhsType  the potential supertype
+     * @param rhsType the potential subtype
+     * @param allowWrapperToPrimitive  assign wrapper type to corresponding promitive type
+     * @return {@code true} if {@code lhsType} is assignable from {@code rhsType}
+     */
+    public static boolean isAssignableFrom(TypeDescription lhsType, TypeDescription rhsType, boolean allowWrapperToPrimitive) {
+        if (lhsType == null || rhsType == null)
+            return false;
+
+        // 1.void type
+        if (lhsType.represents(void.class) || rhsType.represents(void.class))
+            return true;
+
+        // 2.primitive type
+        if (isAssignablePrimitiveFrom(lhsType, rhsType, allowWrapperToPrimitive))
+            return true;
+
+        // 3.reference type
+        return lhsType.isAssignableFrom(rhsType);
+    }
+
+    private static boolean isAssignablePrimitiveFrom(TypeDescription lhsType, TypeDescription rhsType,
+            boolean allowWrapperToPrimitive) {
+        if (lhsType.isPrimitive() && rhsType.isPrimitive()) {
+            return WIDENED_PRIMITIVE_TYPE_DESCRIPTION_MAP.get(rhsType).contains(lhsType);
+        } else if (allowWrapperToPrimitive && lhsType.isPrimitive()) {
+            TypeDescription lhsWrapperType = PRIMITIVE_TYPE_DESCRIPTION_MAP.get(lhsType);
+            return lhsWrapperType.isAssignableFrom(rhsType);
+        } else if (rhsType.isPrimitive()) {
+            TypeDescription rhsWrapperType = PRIMITIVE_TYPE_DESCRIPTION_MAP.get(rhsType);
+            return lhsType.isAssignableFrom(rhsWrapperType);
+        }
+
+        return false;
+    }
+
+
+    /**
+     * Determines if {@code lhsType} is the same as or a supertype of {@code rhsType}
+     * using ByteBuddy generic types, with support for primitive/wrapper boxing.
+     *
+     * @param lhsType  the potential supertype
+     * @param rhsType the potential subtype
+     * @param allowWrapperToPrimitive  assign wrapper type to corresponding promitive type
+     * @return {@code true} if {@code lhsType} is assignable from {@code rhsType}
+     */
+    public static boolean isAssignableFrom(Generic lhsType, Generic rhsType, boolean allowWrapperToPrimitive) {
+        if (lhsType == null || rhsType == null)
+            return false;
+
+        // 1.void type
+        if (lhsType.represents(void.class) || rhsType.represents(void.class))
+            return true;
+
+        // 2.primitive type
+        if (isAssignablePrimitiveFrom(lhsType.asErasure(), rhsType.asErasure(), allowWrapperToPrimitive))
+            return true;
+
+        // 3.reference type
+        return lhsType.accept(TypeDescription.Generic.Visitor.Assigner.INSTANCE).isAssignableFrom(rhsType);
+    }
+
+
+    /**
+     * Determines if {@code lhsType} equals {@code rhsType}, with support for primitive/wrapper boxing.
+     *
+     * @param lhsType  the first type
+     * @param rhsType the second type
+     * @return {@code true} if the types are equal (considering boxing)
+     */
+    public static boolean equals(Class<?> lhsType, Class<?> rhsType) {
+        if (lhsType == null || rhsType == null)
+            return false;
+
+        if (isSamePrimitive(lhsType, rhsType))
+            return true;
+
+        return lhsType.equals(rhsType);
+    }
+
+    private static boolean isSamePrimitive(Class<?> lhsType, Class<?> rhsType) {
+        if (lhsType.isPrimitive() && rhsType.isPrimitive()) {
+            return lhsType.equals(rhsType);
+        } else if (lhsType.isPrimitive()) {
+            Class<?> lhsWrapperType = PRIMITIVE_WRAPPER_MAP.get(lhsType);
+            return lhsWrapperType != null && lhsWrapperType.equals(rhsType);
+        } else if (rhsType.isPrimitive()) {
+            Class<?> rhsWrapperType = PRIMITIVE_WRAPPER_MAP.get(rhsType);
+            return rhsWrapperType != null && lhsType.equals(rhsWrapperType);
         }
 
         return false;
     }
 
     /**
-     * Determines if {@code leftType} equals {@code rightType}, with support for primitive/wrapper boxing.
+     * Determines if {@code targetType} equals {@code sourceType}, with support for primitive/wrapper boxing.
      *
-     * @param leftType  the first type
-     * @param rightType the second type
+     * @param lhsType  the first type
+     * @param rhsType the second type
      * @return {@code true} if the types are equal (considering boxing)
      */
-    public static boolean equals(TypeDescription leftType, TypeDescription rightType) {
-        if (leftType== null || rightType == null)
+    public static boolean equals(TypeDescription lhsType, TypeDescription rhsType) {
+        if (lhsType == null || rhsType == null)
             return false;
 
-        if (isSamePrimitive(leftType, rightType) == true)
+        if (isSamePrimitive(lhsType, rhsType))
             return true;
 
-        return leftType.equals(rightType);
+        return lhsType.equals(rhsType);
     }
 
-    private static boolean isSamePrimitive(TypeDescription leftType, TypeDescription rightType) {
-        if (leftType.isPrimitive() && rightType.isPrimitive()) {
-            return leftType.equals(rightType);
-        } else if (leftType.isPrimitive()) {
-            TypeDescription _leftType = PRIMITIVE_TYPE_DEFINITION_MAP.get(leftType);
-            return _leftType != null && _leftType.equals(rightType);
-        } else if (rightType.isPrimitive()) {
-            TypeDescription _rightType = PRIMITIVE_TYPE_DEFINITION_MAP.get(rightType);
-            return _rightType != null && leftType.equals(_rightType);
+    private static boolean isSamePrimitive(TypeDescription lhsType, TypeDescription rhsType) {
+        if (lhsType.isPrimitive() && rhsType.isPrimitive()) {
+            return lhsType.equals(rhsType);
+        } else if (lhsType.isPrimitive()) {
+            TypeDescription lhsWrapperType = PRIMITIVE_TYPE_DESCRIPTION_MAP.get(lhsType);
+            return lhsWrapperType.asBoxed().equals(rhsType);
+        } else if (rhsType.isPrimitive()) {
+            TypeDescription rhsWrapperType = PRIMITIVE_TYPE_DESCRIPTION_MAP.get(rhsType);
+            return lhsType.equals(rhsWrapperType);
         }
 
         return false;
+    }
+
+    public static boolean equals(Generic lhsType, Generic rhsType) {
+        if (lhsType == null || rhsType == null)
+            return false;
+
+        if (isSamePrimitive(lhsType.asErasure(), rhsType.asErasure()))
+            return true;
+
+        return lhsType.equals(rhsType);
     }
 
 
@@ -354,7 +486,7 @@ public abstract class ClassUtils {
      * @return the resource path
      */
     public static String convertClassToResource(String className, boolean appendClassFileExt) {
-        if (StringUtils.hasText(className) == false)
+        if (!StringUtils.hasText(className))
             return className;
 
         return className.replace(PACKAGE_SEPARATOR, RESOURCE_SPERATOR) 

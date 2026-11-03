@@ -114,7 +114,7 @@ public class WeaverContext {
         // load joinpoint matcher settings
         {
             this.enableWeaver = configView.getAsBoolean(ENABLE_WEAVER_KEY, true);
-            if (LOGGER.isWarnEnabled() && enableWeaver == false)
+            if (LOGGER.isWarnEnabled() && !enableWeaver)
                 LOGGER.warn("WARNING! Setting '{}' is false, and switched off aop weaving.\n", ENABLE_WEAVER_KEY);
         }
 

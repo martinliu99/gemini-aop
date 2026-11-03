@@ -84,7 +84,7 @@ public class ConfigViewAdapter implements PropertySource, ConfigSource {
         // filter out null && empty setting value
         for (String key : configView.keys()) {
             String value = configView.getAsString(key, null);
-            if (value == null || StringUtils.hasText(value) == false)
+            if (value == null || !StringUtils.hasText(value))
                 continue;
 
             this.keys.add(key);

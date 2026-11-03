@@ -168,11 +168,11 @@ public class DefaultAopClassLoader extends AopClassLoader {
             }
 
             // 2.if delegation loading is required, try to load from actual Launcher ClassLoader.
-            if (this.launcherFirstFilters.isLauncherFirstClass(name) == true) {
+            if (this.launcherFirstFilters.isLauncherFirstClass(name)) {
                 try {
                     type = this.launcherClassLoader.loadClass(name);
                     if (type != null) {
-                        if (resolve == true) {
+                        if (resolve) {
                             this.resolveClass(type);
                         }
 
@@ -206,7 +206,7 @@ public class DefaultAopClassLoader extends AopClassLoader {
         URL url = null;
 
         // 1.if delegation loading is required, try to load from actual Launcher ClassLoader.
-        if (this.launcherFirstFilters.isLauncherFirstResource(name) == true) {
+        if (this.launcherFirstFilters.isLauncherFirstResource(name)) {
             url = this.launcherClassLoader.getResource(name);
             if (url != null) {
                 return url;
@@ -233,7 +233,7 @@ public class DefaultAopClassLoader extends AopClassLoader {
     @Override
     public Enumeration<URL> getResources(String name) throws IOException {
         // 1.if delegation loading is required, try to load from actual Launcher ClassLoader.
-        if (this.launcherFirstFilters.isLauncherFirstResource(name) == true) {
+        if (this.launcherFirstFilters.isLauncherFirstResource(name)) {
             return this.launcherClassLoader.getResources(name);
         }
 

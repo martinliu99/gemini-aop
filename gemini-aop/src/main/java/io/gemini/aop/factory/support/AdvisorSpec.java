@@ -189,7 +189,7 @@ public interface AdvisorSpec {
                 return true;
             if (obj == null)
                 return false;
-            if (obj instanceof AdvisorSpec.AbstractBase == false)
+            if (!(obj instanceof AdvisorSpec.AbstractBase))
                 return false;
             AbstractBase other = (AbstractBase) obj;
             if (advisorName == null) {
@@ -258,10 +258,10 @@ public interface AdvisorSpec {
              */
             @SuppressWarnings("rawtypes")
             @Override
-            public AdvisorSpec load(TypePool targetTypePool) {
+            public AdvisorSpec load(TypePool aspectTypePool) {
                 AdviceSpec adviceSpec = getAdviceSpec();
                 if (adviceSpec instanceof AdviceSpec.Loadable)
-                    adviceSpec = ((AdviceSpec.Loadable) adviceSpec).load(targetTypePool);
+                    adviceSpec = ((AdviceSpec.Loadable) adviceSpec).load(aspectTypePool);
 
                 return new Default(getAdvisorName(), getCondition(), 
                         adviceSpec, isPerInstance(), getOrder(), 

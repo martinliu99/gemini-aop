@@ -59,26 +59,19 @@ public class PointcutParser {
 
     protected static Set<PointcutPrimitive> getAllSupportedPointcutPrimitives() {
         Set<PointcutPrimitive> primitives = new LinkedHashSet<>();
-//        primitives.add(PointcutPrimitive.ADVICE_EXECUTION);
+
         primitives.add(PointcutPrimitive.ARGS);
 //        primitives.add(PointcutPrimitive.CALL);
         primitives.add(PointcutPrimitive.EXECUTION);
-//        primitives.add(PointcutPrimitive.GET);
-//        primitives.add(PointcutPrimitive.HANDLER);
-//        primitives.add(PointcutPrimitive.INITIALIZATION);
-//        primitives.add(PointcutPrimitive.PRE_INITIALIZATION);
-//        primitives.add(PointcutPrimitive.SET);
         primitives.add(PointcutPrimitive.STATIC_INITIALIZATION);
         primitives.add(PointcutPrimitive.TARGET);
         primitives.add(PointcutPrimitive.THIS);
         primitives.add(PointcutPrimitive.WITHIN);
-//        primitives.add(PointcutPrimitive.WITHIN_CODE);
         primitives.add(PointcutPrimitive.AT_ANNOTATION);
         primitives.add(PointcutPrimitive.AT_THIS);
         primitives.add(PointcutPrimitive.AT_TARGET);
         primitives.add(PointcutPrimitive.AT_ARGS);
         primitives.add(PointcutPrimitive.AT_WITHIN);
-//        primitives.add(PointcutPrimitive.AT_WITHINCODE);
         primitives.add(PointcutPrimitive.REFERENCE);
 
         return primitives;

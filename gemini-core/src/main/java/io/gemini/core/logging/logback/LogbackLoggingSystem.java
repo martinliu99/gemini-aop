@@ -106,7 +106,7 @@ public class LogbackLoggingSystem implements LoggingSystem {
 
         // fetch logger settings
         for (String key : configView.keys()) {
-            if (key.startsWith("aop.logger.") == false) continue;
+            if (!key.startsWith("aop.logger.")) continue;
 
             String value = configView.getAsString(key, null);
             if (value == null) continue;
@@ -183,7 +183,7 @@ public class LogbackLoggingSystem implements LoggingSystem {
             factory = LoggerFactory.getILoggerFactory();
         }
 
-        if (factory instanceof LoggerContext == false) {
+        if (!(factory instanceof LoggerContext)) {
             String codeLocation = "Unknown location";
             ProtectionDomain protectionDomain = factory.getClass().getProtectionDomain();
             CodeSource codeSource = protectionDomain.getCodeSource();
@@ -253,7 +253,7 @@ public class LogbackLoggingSystem implements LoggingSystem {
 
         // adjust root logger level
         Logger rootlogger = loggerContext.getLogger(Logger.ROOT_LOGGER_NAME);
-        if (rootlogger.getEffectiveLevel().isGreaterOrEqual(allLogLevel) == false)
+        if (!rootlogger.getEffectiveLevel().isGreaterOrEqual(allLogLevel))
             rootlogger.setLevel(allLogLevel);
     }
 
@@ -270,7 +270,7 @@ public class LogbackLoggingSystem implements LoggingSystem {
             throw new IllegalStateException(String.format("Logback configuration error detected: %n%s", errors));
         }
 
-        if (debugLogback == false) {
+        if (!debugLogback) {
             if (!StatusUtil.contextHasStatusListener(loggerContext)) {
                 StatusPrinter.printIfErrorsOccured(loggerContext);
             }

@@ -140,7 +140,7 @@ public class DemoServiceRunner {
         try {
             String pathname = "../../gemini-release/demoapps/gemini-demo-service";
             File lib = new File(pathname + "/lib").getCanonicalFile();;
-            if (lib.exists() == false) {
+            if (!lib.exists()) {
                 throw new RuntimeException("unexisted dir: " + lib.getAbsolutePath());
             }
 

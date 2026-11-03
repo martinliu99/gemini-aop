@@ -91,8 +91,6 @@ public interface ExprPointcut extends io.gemini.api.aop.Pointcut, ElementMatcher
     @Override
     boolean matches(MethodDescription targetMethod);
 
-//    boolean matches(MethodDescription targetMethod, PointcutParameterMatcher pointcutParameterMatcher);
-
 
     /**
      * A strategy for matching pointcut parameters against a target method's parameter types.
@@ -264,14 +262,6 @@ public interface ExprPointcut extends io.gemini.api.aop.Pointcut, ElementMatcher
             return doMatch(targetMethod, false, pointcutParameterMatcher);
         }
 
-        /** 
-         * {@inheritDoc}
-         */
-//        @Override
-//        public boolean matches(MethodDescription targetMethod, PointcutParameterMatcher pointcutParameterMatcher) {
-//            return this.doMatch(targetMethod, false, pointcutParameterMatcher);
-//        }
-
 
         /**
          * Tests whether the given method is matched by this pointcut, additionally validating
@@ -286,7 +276,6 @@ public interface ExprPointcut extends io.gemini.api.aop.Pointcut, ElementMatcher
             Shadow shadow = typeWorld.makeShadow(targetMethod);
             FuzzyBoolean matchResult = pointcut.match(shadow);
 
-//            Test residueTest = Literal.TRUE;
             ExposedState exposedState = new ExposedState(pointcutParameters.size());
             if (matchResult.maybeTrue()) {
                 pointcut.findResidue(shadow, exposedState);
@@ -312,16 +301,14 @@ public interface ExprPointcut extends io.gemini.api.aop.Pointcut, ElementMatcher
                 // involved in the test (this, target, at_this, at_target, at_annotation) then
                 // we say this is not a match as in Spring there will never be a different
                 // runtime subtype.
-//                RuntimeTestWalker walker = getRuntimeTestWalker(shadowMatch);
-//                return (!walker.testsSubtypeSensitiveVars() || walker.testTargetInstanceOfResidue(targetClass));
                 return false;
             }
         }
 
         private List<PointcutParameter> createParamterBindings(ExposedState exposedState) {
-            int paramCount = exposedState.vars.length;
-            List<PointcutParameter> parameterBindings = new ArrayList<>(paramCount);
-            for (int i = 0; i < paramCount; i++) {
+            int parameterCount = exposedState.vars.length;
+            List<PointcutParameter> parameterBindings = new ArrayList<>(parameterCount);
+            for (int i = 0; i < parameterCount; i++) {
                 PointcutParameter var = (PointcutParameter) exposedState.vars[i];
                 if (var != null)
                     parameterBindings.add(var);

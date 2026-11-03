@@ -44,9 +44,7 @@ public abstract class ObjectUtils {
      * @return the object ID string
      */
     public static String getObjectId(Object obj) {
-        Assert.notNull(obj, "'obj' must not be null.");
-
-        return obj.getClass() + "@" + getIdentityHexString(obj);
+        return obj == null ? "null" : obj.getClass() + "@" + getIdentityHexString(obj);
     }
 
 

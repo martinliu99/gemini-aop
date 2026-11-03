@@ -65,7 +65,7 @@ public interface AspectAppScanner {
 
 
         public Default(Path aspectAppsPath) {
-            if (Files.exists(aspectAppsPath) == false || Files.isDirectory(aspectAppsPath) == false) {
+            if (!Files.exists(aspectAppsPath) || !Files.isDirectory(aspectAppsPath)) {
                 System.err.println("Illegal aspectAppsPath: " + aspectAppsPath);
                 this.aspectAppsPath = null;
             } else

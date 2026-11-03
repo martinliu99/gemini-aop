@@ -100,7 +100,7 @@ public interface ElementExpr<T> extends ElementMatcher<T> {
          */
         @Override
         public boolean matches(T target) {
-            if (target instanceof String && StringUtils.hasText( (String) target) == false)
+            if (target instanceof String && !StringUtils.hasText( (String) target))
                 return false;
 
             ResolvedType resolvedType = doResolveType(typeWorld, target);

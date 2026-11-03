@@ -102,7 +102,7 @@ public interface ClassRenamer {
             for (Entry<String, String> entry : nameMapping.entrySet()) {
                 String oldName = entry.getKey();
                 String newName = entry.getValue();
-                if (StringUtils.hasText(oldName) == false || StringUtils.hasText(newName) == false)
+                if (!StringUtils.hasText(oldName) || !StringUtils.hasText(newName))
                     continue;
 
                 this.nameMapping.put(
@@ -115,7 +115,7 @@ public interface ClassRenamer {
             this.removedInnerClasses = new HashSet<String>(removedAnnotations.size());
             this.removedAnnotationDescriptors = new HashSet<String>(removedAnnotations.size());
             for (String annotationName : removedAnnotations) {
-                if (StringUtils.hasText(annotationName) == false)
+                if (!StringUtils.hasText(annotationName))
                     continue;
 
                 String descriptor = annotationName.replace(ClassUtils.PACKAGE_SEPARATOR, ClassUtils.RESOURCE_SPERATOR);
@@ -150,7 +150,7 @@ public interface ClassRenamer {
 
             ClassWriter writer = new ClassWriter(null, 0);
             ClassVisitor visitor = new ClassRemapper(writer, new SimpleRemapper(Opcodes.ASM9, nameMapping));
-            if (CollectionUtils.isEmpty(removedAnnotationDescriptors) == false) {
+            if (!CollectionUtils.isEmpty(removedAnnotationDescriptors)) {
                 visitor = new AnnotationRemover(visitor, removedAnnotationDescriptors);
             }
 
@@ -168,7 +168,7 @@ public interface ClassRenamer {
         }
 
         private void dumpByteCode(String className, byte[] originByteCode, byte[] mappedByteCode) throws IOException {
-            if (dumpByteCode == false)
+            if (!dumpByteCode)
                 return;
 
             long timestamp = System.currentTimeMillis();
@@ -206,7 +206,7 @@ public interface ClassRenamer {
              */
             @Override
             public void visitInnerClass(final String name, final String outerName, final String innerName, final int access) {
-                if (removedInnerClasses.contains(name) == false)
+                if (!removedInnerClasses.contains(name))
                     super.visitInnerClass(name, outerName, innerName, access);
             }
 

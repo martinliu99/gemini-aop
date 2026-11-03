@@ -73,7 +73,7 @@ public class DiscoveryStrategyAdapter implements DiscoveryStrategy {
 
         // collector garbage before instrumenting loaded classes 
         // avoid exception such as 'IllegalStateException zip file closed'
-        if (disabled == false)
+        if (!disabled)
             System.gc();
 
         return disabled 

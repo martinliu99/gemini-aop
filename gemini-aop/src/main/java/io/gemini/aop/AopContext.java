@@ -245,14 +245,14 @@ public class AopContext implements Closeable {
     }
 
     private TypePoolFactory createTypePoolFactory() {
-        return isDetectTypeResolution() == false
+        return !isDetectTypeResolution()
                 ? new TypePoolFactory.Default(LocationStrategy.ForClassLoader.WEAK)
                 : new TypePoolFactory.Default.TypeResolutionDetector(LocationStrategy.ForClassLoader.WEAK)
         ;
     }
 
     private TypeWorldFactory createTypeWorldFactory(TypePoolFactory typePoolFactory) {
-        return isDetectTypeResolution() == false
+        return !isDetectTypeResolution()
                 ? new TypeWorldFactory.Default(typePoolFactory)
                 : new TypeWorldFactory.Default.TypeResolutionDetector(typePoolFactory)
         ;

@@ -198,7 +198,7 @@ public class BootstrapClassConfigurer {
         // Instrumentation.appendToBootstrapClassLoaderSearch(...) does NOT support java.lang.* class injection
 
         // 1. use sun.misc.Unsafe::defineClass on JDK 8 and below.
-        if (ClassInjector.UsingLookup.isAvailable() == false) {
+        if (!ClassInjector.UsingLookup.isAvailable()) {
             Map<String, byte[]> classBytecodeMap = new HashMap<>();
             for (Entry<Class<?>, Set<ProviderClass>> entry : providerClasses.entrySet()) {
                 for (ProviderClass provider : entry.getValue()) {
@@ -221,7 +221,7 @@ public class BootstrapClassConfigurer {
 
             JavaModule reflectingModule = JavaModule.ofType(getClass());
 
-            if (typeModule.isOpened(typePackageDescription, reflectingModule) == false) {
+            if (!typeModule.isOpened(typePackageDescription, reflectingModule)) {
                 // redefine module module/package(java.base/java.lang) to allow access from current unnamed module.
                 ClassInjector.UsingInstrumentation.redefineModule(
                         instrumentation, 

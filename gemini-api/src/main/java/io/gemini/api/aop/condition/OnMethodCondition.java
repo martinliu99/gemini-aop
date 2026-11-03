@@ -47,7 +47,7 @@ public class OnMethodCondition implements ElementMatcher<MatchingContext> {
      */
     @Override
     public boolean matches(MatchingContext context) {
-        if (context.hasMethod(methodExpression) == false)
+        if (!context.hasMethod(methodExpression))
             throw new MissingElementException("Missing method required by expression.", methodExpression);
 
         return true;

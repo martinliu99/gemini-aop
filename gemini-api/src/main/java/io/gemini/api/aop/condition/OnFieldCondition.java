@@ -47,7 +47,7 @@ public class OnFieldCondition implements ElementMatcher<MatchingContext> {
      */
     @Override
     public boolean matches(MatchingContext context) {
-        if (context.hasFiled(fieldExpression) == false)
+        if (!context.hasFiled(fieldExpression))
             throw new MissingElementException("Missing field required by expression.", fieldExpression);
 
         return true;

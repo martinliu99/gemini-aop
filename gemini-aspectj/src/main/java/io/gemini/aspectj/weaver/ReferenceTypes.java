@@ -113,7 +113,7 @@ public interface ReferenceTypes {
                 ResolvedType resolvedType= (ResolvedType) other;
 
                 // quickly compare signature
-                if (this.getSignature().equals(resolvedType.getSignature()) == false)
+                if (!this.getSignature().equals(resolvedType.getSignature()))
                     return false;
 
                 if (other instanceof WithDelegation)

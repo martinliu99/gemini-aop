@@ -96,7 +96,6 @@ public class HasExprTests extends AbstractTests {
         String data = "hasmethod(public void io.gemini.aspectj.weaver.HasExprTests.testMethod(..)) && hasmethod(java.util.List<java.lang.String> io.gemini.aspectj.weaver.HasExprTests.replace(..))";
         boolean result = false;
         try {
-//            data = data.replace("existsMethod(", "execution(");
             World world = createReflectionWorld();
             TypePattern typePattern = createHasTypePatternt(data);
 

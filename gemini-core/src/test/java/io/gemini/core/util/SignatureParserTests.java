@@ -18,6 +18,8 @@ package io.gemini.core.util;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
 
@@ -60,27 +62,96 @@ public class SignatureParserTests {
         );
     }
 
+//    @Test
+    public void test() {
+        for (Field field : Clazz.class.getDeclaredFields()) {
+            LOGGER.info("{}:", field.getName());
+
+            Class<?> type = field.getType();
+            LOGGER.info("  name: {}", type.getName());
+            LOGGER.info("  TypeName: {}", type.getTypeName());
+            LOGGER.info("  CanonicalName: {}", type.getCanonicalName());
+            LOGGER.info("  SimpleName: {}", type.getSimpleName());
+
+            Type type2 = field.getGenericType();
+            LOGGER.info("  TypeName: {}", type2.getTypeName());
+        }
+
+        TypeDescription typeDescription = typePool.describe(Clazz.class.getName()).resolve();
+        for (FieldDescription field : typeDescription.getDeclaredFields()) {
+            LOGGER.info("{}: {}", field.getName(), field.getType().getSort());
+
+            Generic type = field.getType();
+            LOGGER.info("  ActualName: {}", type.getActualName());
+            LOGGER.info("  TypeName: {}", type.getTypeName());
+
+            TypeDescription type2 = field.getType().asErasure();
+            LOGGER.info("  name: {}", type2.getName());
+            LOGGER.info("  ActualName: {}", type2.getActualName());
+            LOGGER.info("  TypeName: {}", type2.getTypeName());
+            LOGGER.info("  CanonicalName: {}", type2.getCanonicalName());
+            LOGGER.info("  InternalName: {}", type2.getInternalName());
+            LOGGER.info("  LongSimpleName: {}", type2.getLongSimpleName());
+            LOGGER.info("  SimpleName: {}", type2.getSimpleName());
+            LOGGER.info("  Descriptor: {}", type2.getDescriptor());
+            LOGGER.info("  GenericSignature: {}", type2.getGenericSignature());
+
+            net.bytebuddy.jar.asm.Type type3 = net.bytebuddy.jar.asm.Type.getType(field.getDescriptor());
+            LOGGER.info("  ClassName: {}", type3.getClassName());
+        }
+        LOGGER.info("\n\n\n");
+    }
+
 
     @Test
     public void testFieldSignature() {
-        TypeDescription typeDescription = typePool.describe(Param.class.getName()).resolve();
-
-        FieldDescription fieldDescription1 = typeDescription.getDeclaredFields().filter( named("ls") ).getOnly();
-        LOGGER.info("field1 Signature: {}", fieldDescription1.getGenericSignature());
-        compareFieldSignature(fieldDescription1);
-
-        FieldDescription fieldDescription2 = typeDescription.getDeclaredFields().filter( named("cmap") ).getOnly();
-        LOGGER.info("field2 Signature: {}", fieldDescription2.getGenericSignature());
-        compareFieldSignature(fieldDescription2);
+        TypeDescription typeDescription = typePool.describe(Clazz.class.getName()).resolve();
+        for (FieldDescription field : typeDescription.getDeclaredFields()) {
+            compareFieldSignature(field);
+        }
     }
 
     private void compareFieldSignature(FieldDescription fieldDescription) {
-        TypeSignature typeSignature = SignatureParser.parseTypeSignature(fieldDescription.getGenericSignature());
         Generic genericFeildType = fieldDescription.getType();
-        TypeDescription erasureFieldType = genericFeildType.asErasure();
 
-        assertThat(genericFeildType.getSort()).isEqualTo(typeSignature.getSort());
-        assertThat(erasureFieldType.getTypeName()).isEqualTo(typeSignature.getTypeName());
+        String fieldDescriptor = fieldDescription.getGenericSignature();
+        if (fieldDescriptor == null)
+            fieldDescriptor = fieldDescription.getDescriptor();
+
+        TypeSignature typeSignature = SignatureParser.parseTypeSignature(fieldDescriptor);
+
+        LOGGER.info("Origin - {}: {}, {}", fieldDescription.getName(), genericFeildType.getTypeName(), genericFeildType.getSort());
+        LOGGER.info("Parsed - {}: {}, {}", fieldDescription.getName(), typeSignature.getGenericName(), typeSignature.getSort());
+        LOGGER.info("Generic Descriptor: {}", fieldDescriptor);
+
+        if (TypeDefinition.Sort.PARAMETERIZED == genericFeildType.getSort()) {
+            for (Generic argument : genericFeildType.getTypeArguments()) {
+                LOGGER.info("  Argument: {}, {}", argument.getSort(), argument.getTypeName());
+            }
+        }
+
+        assertThat(typeSignature.getSort()).isEqualTo(genericFeildType.getSort());
+
+        if (TypeDefinition.Sort.VARIABLE != typeSignature.getSort() && TypeDefinition.Sort.GENERIC_ARRAY != typeSignature.getSort()) {
+            TypeDescription erasureFieldType = genericFeildType.asErasure();
+            assertThat(typeSignature.getTypeName()).isEqualTo(erasureFieldType.getTypeName());
+        }
+
+        List<? extends TypeSignature> typeArguments = typeSignature.getTypeArguments();
+        if (typeArguments.size() == 0)
+            return;
+
+        int index = 0;
+        for (TypeSignature typeArgument : typeArguments) {
+            assertThat(typeArgument.getSort()).isEqualTo(genericFeildType.getTypeArguments().get(index).getSort());
+
+            if (typeArgument.getSort() == TypeDefinition.Sort.NON_GENERIC || typeArgument.getSort() == TypeDefinition.Sort.PARAMETERIZED)
+                assertThat(typeArgument.getTypeName()).isEqualTo(genericFeildType.getTypeArguments().get(index).asErasure().getTypeName());
+            else if (typeArgument.getSort() == TypeDefinition.Sort.WILDCARD)
+                assertThat(typeArgument.getTypeName()).isEqualTo(genericFeildType.getTypeArguments().get(index).getTypeName());
+
+            index++;
+        }
     }
 
 
@@ -90,6 +161,14 @@ public class SignatureParserTests {
         MethodDescription.InDefinedShape methodDescription = typeDescription.getDeclaredMethods().filter( named("get") ).getOnly();
         LOGGER.info("methodSignature: {}", methodDescription.getGenericSignature());
 
+        for (MethodDescription method : typeDescription.getDeclaredMethods()) {
+            LOGGER.info("{}:", method.getName());
+
+            net.bytebuddy.jar.asm.Type methods = net.bytebuddy.jar.asm.Type.getMethodType(method.getDescriptor());
+            for (net.bytebuddy.jar.asm.Type arg : methods.getArgumentTypes()) {
+                LOGGER.info("  arg: {}", arg.getClassName());
+            }
+        }
         compareMethodSignature(methodDescription);
     }
 
@@ -121,7 +200,49 @@ public class SignatureParserTests {
     }
 
 
-    static class Clazz<C> {
+    static class Clazz<C extends Number> {
+
+        // NON_GENERIC
+        public String field01;
+
+        @SuppressWarnings("rawtypes")
+        public List field02;
+
+        public String[] field05;
+        public String[][] field06;
+
+        @SuppressWarnings("rawtypes")
+        public List[] field07;
+        @SuppressWarnings("rawtypes")
+        public List[][] field08;
+
+
+        // TYPE_VARIABLE
+        public C field11;
+
+
+        // GENERIC_ARRAY
+        public List<String>[] field21;
+        public List<String>[][] field22;
+
+        public C[] field23;
+        public List<C>[] field24;
+
+
+        // PARAMETRIZED
+        public List<String> field31;
+        public List<String[]> field32;
+
+        public List<C> field33;
+        public List<C[]> field34;
+
+
+        // WILDCARD
+        public List<? super Number> field41;
+        public List<List<? super Number>> field42;
+
+        public List<? super C> field43;
+
 
         @SuppressWarnings("rawtypes")
         public void get(Map<Param[][], List<Param[][]>> arg0, int arg1, long[][] arg2) {}
@@ -130,12 +251,12 @@ public class SignatureParserTests {
 
     static class Param<C> {
 
-        private List<C[][]> ls;
-        private Map<String, ? extends Number> cmap;
+        private List<C[][]> field1;
+        private Map<String, ? extends Number> field3;
 
         Map<String, ? extends Number> transform(List<C[][]> ls) {
-            if (this.ls == ls)
-                return cmap;
+            if (this.field1 == ls)
+                return field3;
             else
                 return null;
         }

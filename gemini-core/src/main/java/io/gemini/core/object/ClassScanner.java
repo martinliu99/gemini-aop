@@ -214,11 +214,11 @@ public interface ClassScanner {
                 this.packageInfoList = result.getPackageInfo();
             } finally {
                 if (result != null) {
-//                    try {
-//                        result.close();
-//                    } catch (Exception ignored) {
-//                        /* ignore */
-//                    }
+                    try {
+                        result.close();
+                    } catch (Exception ignored) {
+                        /* ignore */
+                    }
                 }
 
                 if (LOGGER.isInfoEnabled()) {
@@ -277,7 +277,7 @@ public interface ClassScanner {
 
         protected Default(ClassScanner classScanner, List<URL> filteredClasspathElementUrls) {
             Assert.notNull(classScanner, "'classScanner' must not be null.");
-            if (classScanner instanceof Default == false)
+            if (!(classScanner instanceof Default))
                 throw new IllegalArgumentException("classScanner must be instanceof ClassScanner.Default");
 
             Assert.notNull(filteredClasspathElementUrls, "'filteredClasspathElementUrls' must not be empty.");
@@ -408,7 +408,7 @@ public interface ClassScanner {
                 }
 
                 for (Pattern pattern : acceptJarPatterns) {
-                    if (pattern.matcher(JarUtils.leafName(classpathElementPathStr)).matches() == true)
+                    if (pattern.matcher(JarUtils.leafName(classpathElementPathStr)).matches())
                         return true;
                 }
 
@@ -434,7 +434,7 @@ public interface ClassScanner {
             public boolean accept(ClassInfo classInfo) {
                 // filter annotation
                 for (AnnotationInfo annotationInfo : classInfo.getAnnotationInfo()) {
-                    if (NO_SCANNING_TYPE.equals(annotationInfo.getClassInfo().getName()) == true)
+                    if (NO_SCANNING_TYPE.equals(annotationInfo.getClassInfo().getName()))
                         return false;
                 }
 

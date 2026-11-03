@@ -129,7 +129,7 @@ public interface AdvisorSpecScanner {
                     if (advisorSpec == null) 
                         continue;
     
-                    if (StringUtils.hasText(advisorSpec.getAdvisorName()) == false) {
+                    if (!StringUtils.hasText(advisorSpec.getAdvisorName())) {
                         if (LOGGER.isWarnEnabled())
                             LOGGER.warn("Ignored empty AdvisorName AdvisorSpec. \n"
                                     + "    AdviceClassName: {} \n",
@@ -229,10 +229,10 @@ public interface AdvisorSpecScanner {
          */
         @Override
         public boolean accept(ClassInfo classInfo) {
-            if (super.accept(classInfo) == true)
+            if (super.accept(classInfo))
                 return true;
 
-            if (classInfo.isAnonymousInnerClass() == false)
+            if (!classInfo.isAnonymousInnerClass())
                 if (LOGGER.isWarnEnabled())
                     LOGGER.warn("Ignored AdvisorSpec class is NOT top-level or nested, concrete class. \n"
                             + "  AdvisorName: {} \n"
@@ -304,7 +304,7 @@ public interface AdvisorSpecScanner {
                 AnnotationDescription advisorNameAnnotation = annotations.ofType(AdvisorName.class);
                 if (advisorNameAnnotation != null)
                     advisorName = advisorNameAnnotation.getValue("value").resolve(String.class).trim();
-                if (StringUtils.hasText(advisorName) == false)
+                if (!StringUtils.hasText(advisorName))
                     advisorName = adviceClassName;
 
                 // parse Condition

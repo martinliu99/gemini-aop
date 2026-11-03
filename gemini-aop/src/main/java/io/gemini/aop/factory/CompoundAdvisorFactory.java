@@ -90,9 +90,9 @@ class CompoundAdvisorFactory implements AdvisorFactory {
         Map<FactoryContext, DefaultAdvisorFactory> advisorFactoryMap = new LinkedHashMap<>(factoryContextMap.size());
         for (FactoryContext factoryContext : factoryContextMap.values()) {
             // create AdvisorFactory
-            DefaultAdvisorFactory advisorFactory = aopContext.getDiagnosticLevel().isSimpleEnabled() == false
+            DefaultAdvisorFactory advisorFactory = !aopContext.getDiagnosticLevel().isSimpleEnabled()
                     ? new DefaultAdvisorFactory(factoryContext)
-                    : aopContext.isDetectTypeResolution() == false 
+                    : !aopContext.isDetectTypeResolution() 
                             ? new DefaultAdvisorFactory.Diagnostic(factoryContext)
                             : new DefaultAdvisorFactory.TypeResolutionDetector(factoryContext);
 

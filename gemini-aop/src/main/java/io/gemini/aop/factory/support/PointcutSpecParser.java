@@ -84,7 +84,7 @@ public interface PointcutSpecParser {
 
     /**
      * Delegates to all registered {@link PointcutSpecParser} instances in order,
-     * returning the first non-null result.
+     * and returns the first non-null result.
      */
     @NoScanning
     class Compound implements PointcutSpecParser {
@@ -177,7 +177,7 @@ public interface PointcutSpecParser {
         @Override
         public PointcutSpec parse(FactoryContext factoryContext, AdviceSpec adviceSpec) {
             try {
-                if (adviceSpec == null || supports(adviceSpec) == false)
+                if (adviceSpec == null || !supports(adviceSpec))
                     return null;
 
                 return doParse(factoryContext, (AS) adviceSpec);
@@ -208,7 +208,7 @@ public interface PointcutSpecParser {
         public PointcutSpec parse(FactoryContext factoryContext, String configKeyPrefix, 
                 AdviceSpec adviceSpec, PointcutAdvisorSpec existingAdvisorSpec) {
             try {
-                if (adviceSpec == null || supports(adviceSpec) == false)
+                if (adviceSpec == null || !supports(adviceSpec))
                     return null;
 
                 return doParse(factoryContext, configKeyPrefix, (AS) adviceSpec, existingAdvisorSpec);
@@ -307,7 +307,7 @@ public interface PointcutSpecParser {
             if (pointcutAnnotation != null)
                 pointcutExpression = pointcutAnnotation.getValue("value").resolve(String.class).trim();
 
-            if (StringUtils.hasText(pointcutExpression) == false)
+            if (!StringUtils.hasText(pointcutExpression))
                 return null;
 
             return new ExprPointcutSpec.Default(
@@ -328,7 +328,7 @@ public interface PointcutSpecParser {
             // overwrite configuration properties if exists
             String pointcutExpression = configView.getAsString(
                     configKeyPrefix + "pointcutExpression", "");
-            if (StringUtils.hasText(pointcutExpression) == false)
+            if (!StringUtils.hasText(pointcutExpression))
                 return existingAdvisorSpec.getPointcutSpec();
 
             boolean breakCircularity = configView.getAsBoolean(
@@ -363,7 +363,7 @@ public interface PointcutSpecParser {
 
             AnnotationDescription aspectJAdviceAnnotation = adviceSpec.getAdviceAnnotation();;
             String pointcutExpression = aspectJAdviceAnnotation.getValue("value").resolve(String.class).trim();
-            if (StringUtils.hasText(pointcutExpression) == false) {
+            if (!StringUtils.hasText(pointcutExpression)) {
                 try {
                     // override 'value' attribute
                     pointcutExpression = aspectJAdviceAnnotation.getValue("pointcut").resolve(String.class).trim();
@@ -387,7 +387,7 @@ public interface PointcutSpecParser {
 
             // overwrite configuration properties if exists
             String pointcutExpression = configView.getAsString(configKeyPrefix + "pointcutExpression", "");
-            if (StringUtils.hasText(pointcutExpression) == false)
+            if (!StringUtils.hasText(pointcutExpression))
                 return existingAdvisorSpec.getPointcutSpec();
 
             boolean breakCircularity = configView.getAsBoolean(configKeyPrefix + "breakCircularity", 
