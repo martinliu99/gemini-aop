@@ -33,13 +33,13 @@ import java.lang.reflect.AccessibleObject;
 public interface Joinpoint {
 
     /**
-     * get Lookup of target class to access members of target object
+     * Returns Lookup of target class to access members of target object
      * @return lookup of target class
      */
     Lookup getTargetLookup();
 
     /**
-     * get target class
+     * Returns target class
      * @return target class
      */
     Class<?> getTargetClass();
@@ -53,8 +53,7 @@ public interface Joinpoint {
 
 
     /**
-     * Returns the object that holds the current joinpoint's static
-     * part.
+     * Returns the object that holds the current joinpoint's static part.
      *
      * <p>For instance, the target object for an invocation.
      *
@@ -64,7 +63,7 @@ public interface Joinpoint {
 
     /**
      * Get the arguments as an array object.
-     * It is possible to change element values within this
+     * It is impossible to change element values within this
      * array to change the arguments.
      *
      * @return the argument of the invocation */
@@ -72,7 +71,7 @@ public interface Joinpoint {
 
 
     /**
-     * Get attached additional context value for provided key.
+     * Returns attached additional context value for provided key.
      * 
      * @param key   the key of context value
      * @return      context value
@@ -80,7 +79,7 @@ public interface Joinpoint {
     Object getInvocationContext(String key);
 
     /**
-     * Attach additional contextual key value pair across one method invocation.
+     * Attaches additional contextual key value pair across one method invocation.
      * 
      * @param key   the key of context value
      * @param value context value
@@ -90,45 +89,60 @@ public interface Joinpoint {
 
     /**
      * The {@link MutableJoinpoint} sub-interface additionally exposes the 
-     * returning value and throwing exception, and allows advice to override them. 
+     * return value and thrown exception, and allows advice to override them. 
      *
-     * @param <T>   returning value
-     * @param <E>   throwing exception
+     * @param <R>   return value
+     * @param <E>   thrown exception
      */
-    interface MutableJoinpoint<T, E extends Throwable> extends Joinpoint {
+    interface MutableJoinpoint<R, E extends Throwable> extends Joinpoint {
 
         /**
-         * Get the return value of target method invocation and throw IllegalStateException 
-         * when called in {@link io.gemini.api.aop.Advice.Before} advice.
+         * Sets the target object that advice wants to substitute for the target method's owner object.
          * 
-         * @return      returning value
+         * @param targetObject the target object
+         */
+        void setTargetObject(Object targetObject);
+
+        /**
+         * Sets arguments that advice wants to substitute for the target method's arguments.
+         * 
+         * @param targetObject the target object
+         */
+        void setArguments(Object... arguments);
+
+
+        /**
+         * Returns the return value of target method invocation, or throw IllegalStateException when called 
+         * in {@link io.gemini.api.aop.Advice.Before} advice.
+         * 
+         * @return      the return value
          * @throws IllegalStateException    thrown exception when called in {@link io.gemini.api.aop.Advice.Before} advice
          */
-        T getReturning() throws IllegalStateException;
+        R getReturnValue() throws IllegalStateException;
 
         /**
-         * Override the return value of target method invocation.
+         * Sets the return value that advice wants to substitute for the target method's result.
          * 
-         * @param returning     returning value
+         * @param returnValue     the return value
          */
-        void setAdviceReturning(T returning);
+        void setReturnValue(R returnValue);
 
 
         /**
-         * Get the thrown exception of target method invocation and throw IllegalStateException 
-         * when called in {@link io.gemini.api.aop.Advice.Before} advice.
+         * Returns the thrown exception of target method invocation, or throw IllegalStateException when called 
+         * in {@link io.gemini.api.aop.Advice.Before} advice.
          * 
-         * @return throwing     throwing exception
+         * @return the thrown exception
          * @throws IllegalStateException    thrown exception when called in {@link io.gemini.api.aop.Advice.Before} advice.
          */
-        E getThrowing() throws IllegalStateException;
+        E getThrownException() throws IllegalStateException;
 
         /**
-         * Override the thrown exception of target method invocation.
+         * Sets the exception that advice wants to substitute for the target method's thrown exception.
          *
-         * @param throwing throwing exception
+         * @param thrownException the thrown exception
          */
-        void setAdviceThrowing(E throwing);
+        void setThrownException(E thrownException);
     }
 
 
@@ -138,26 +152,26 @@ public interface Joinpoint {
      * 
      * TODO: not supported
      * 
-     * @param <T>   returning value
-     * @param <E>   throwing exception
+     * @param <R>   return value
+     * @param <E>   thrown exception
      */
-    interface ProceedingJoinpoint<T, E extends Throwable> extends Joinpoint {
+    interface ProceedingJoinpoint<R, E extends Throwable> extends Joinpoint {
 
         /**
          * Proceeds to the next advice in the chain or target method invocation.
          *
-         * @return returning value
+         * @return the return value
          */
-        T proceed() throws E;
+        R proceed() throws E;
 
         /**
          * Proceeds to the next advice in the chain or target method invocation 
          * with overrode arguments.
          * 
          * @param arguments     the arguments of method invocation
-         * @return              returning value of method invocation
-         * @throws Throwable    throwing exception
+         * @return              the return value of method invocation
+         * @throws Throwable    the thrown exception
          */
-        T proceed(Object... arguments) throws E;
+        R proceed(Object... arguments) throws E;
     }
 }

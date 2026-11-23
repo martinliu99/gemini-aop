@@ -52,7 +52,7 @@ public class MethodAdvice {
     @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class, inline = true, prependLineNumber = true)
     public static boolean beforeMethod(
             @DescriptorOffset.Descriptor Object descriptor,
-            @Advice.This(readOnly = false, typing = Assigner.Typing.DYNAMIC, optional = true) Object targetObject,
+            @Advice.This(readOnly = false, optional = true, typing = Assigner.Typing.DYNAMIC) Object targetObject,
             @Advice.AllArguments(readOnly = false, typing = Assigner.Typing.DYNAMIC) Object[] arguments,
             @Advice.Local(value = VAR_ADVICE_DISPATCHER) Dispatcher<Object, Throwable> dispatcher
             ) throws Throwable {
@@ -66,9 +66,10 @@ public class MethodAdvice {
         dispatcher.dispatch();
 
         // 3.replace arguments
+        targetObject = dispatcher.getTargetObject();
         arguments = dispatcher.getArguments();
 
-        return dispatcher.hasAdviceThrowing() || dispatcher.hasAdviceReturning();
+        return dispatcher.hasAssignedThrownException() || dispatcher.hasAssignedReturnValue();
     }
 
 
@@ -76,41 +77,47 @@ public class MethodAdvice {
      * Executed after the method body (or after being skipped).
      * Invokes after-advice and propagates any advice-set return or throw value.
      *
-     * @param returning   the actual return value of the method
-     * @param throwing    the exception thrown by the method, or {@code null}
+     * @param returnValue   the actual return value of the method
+     * @param thrownException   the exception thrown by the method, or {@code null}
      * @param dispatcher  the dispatcher created in {@link #beforeMethod}
      * @throws Throwable if after-advice throws or if advice sets a throw value
      */
-    @Advice.OnMethodExit(onThrowable = Throwable.class, inline = true)
+    @Advice.OnMethodExit(onThrowable = Throwable.class, inline = true, backupArguments = true)
     public static void afterMethod(
-            @Advice.Return(readOnly = false, typing = Assigner.Typing.DYNAMIC) Object returning,
-            @Advice.Thrown(readOnly = false, typing = Assigner.Typing.DYNAMIC) Throwable throwing,
+            @Advice.This(readOnly = false, optional = true, typing = Assigner.Typing.DYNAMIC) Object targetObject,
+            @Advice.AllArguments(readOnly = false, typing = Assigner.Typing.DYNAMIC) Object[] arguments,
+            @Advice.Return(readOnly = false, typing = Assigner.Typing.DYNAMIC) Object returnValue,
+            @Advice.Thrown(readOnly = false, typing = Assigner.Typing.DYNAMIC) Throwable thrownException,
             @Advice.Local(value = VAR_ADVICE_DISPATCHER) Dispatcher<Object, Throwable> dispatcher
             ) throws Throwable {
         if (dispatcher == null)
             return;
 
-        // 1.assign return value if BeforeAdvices marked return before execute instrumented method
-        if (dispatcher.hasAdviceThrowing()) {
-            throwing = dispatcher.getAdviceThrowing();
-            return;
-        } else if (dispatcher.hasAdviceReturning()) {
-            returning = dispatcher.getAdviceReturning();
-            return;
+        // 1.assign return value if BeforeAdvices marked return
+        if (dispatcher.hasAssignedThrownException()) {
+            thrownException = dispatcher.getThrownException();
+        } else if (dispatcher.hasAssignedReturnValue()) {
+            returnValue = dispatcher.getReturnValue();
         }
 
-        // 2.set actual returning and throwing of target method
-        dispatcher.setThrowing(throwing);
-        dispatcher.setReturning(returning);
+        // 2.set the actual return value or the thrown exception of target method
+        dispatcher.setTargetObject(targetObject);
+        dispatcher.setArguments(arguments);
+
+        dispatcher.setThrownException(thrownException);
+        dispatcher.setReturnValue(returnValue);
 
         // 3.invoke AfterAdvices
         dispatcher.dispatch();
 
         // check invocation result
-        if (dispatcher.hasAdviceThrowing()) {
-            throwing = dispatcher.getAdviceThrowing();
-        } else if (dispatcher.hasAdviceReturning()) {
-            returning = dispatcher.getAdviceReturning();
+        targetObject = dispatcher.getTargetObject();
+        arguments = dispatcher.getArguments();
+
+        if (dispatcher.hasAssignedThrownException()) {
+            thrownException = dispatcher.getThrownException();
+        } else if (dispatcher.hasAssignedReturnValue()) {
+            returnValue = dispatcher.getReturnValue();
         }
     }
 }

@@ -67,8 +67,6 @@ public abstract class BootstrapDispatcher {
 
     public static final String VAR_ADVICE_DISPATCHER = "_$$AdviceDispatcher$$";
 
-    public static final Object[] ARGUMENTS = new Object[0];
-
     private static Delegator DELEGATOR;
 
     private static ThreadLocal<Boolean> IN_DISPATCHING = new ThreadLocal<>();
@@ -158,7 +156,7 @@ public abstract class BootstrapDispatcher {
      * 
      * <ol>
      * <li>notify {@code Advice} instances before target method invocation,
-     * and after target method invocation with returning or throwing of target method,
+     * and after target method invocation with return value or thrown exception of target method,
      * <li>modify arguments of target method. 
      * </ol>
      * 
@@ -175,6 +173,24 @@ public abstract class BootstrapDispatcher {
          */
         T dispatch() throws E;
 
+
+        /**
+         * Returns the object that holds the current joinpoint's static part.
+         *
+         * <p>For instance, the target object for an invocation.
+         *
+         * @return the object (can be null if the accessible object is
+         * static). */
+        Object getTargetObject();
+
+        /**
+         * Sets the object that holds the current joinpoint's static part.
+         * 
+         * @param targetObject the target object
+         */
+        void setTargetObject(Object targetObject);
+
+
         /**
          * Returns the current method arguments, which may have been modified by before-advice.
          *
@@ -183,47 +199,55 @@ public abstract class BootstrapDispatcher {
         Object[] getArguments();
 
         /**
-         * Sets the actual return value from the target method invocation.
-         *
-         * @param returning the return value
+         * Set the current method arguments.
+         * 
+         * @param arguments method arguments
          */
-        void setReturning(T returning);
-
-        /**
-         * Sets the actual exception thrown by the target method.
-         *
-         * @param throwing the thrown exception, or {@code null}
-         */
-        void setThrowing(E throwing);
+        void setArguments(Object[] arguments);
 
 
         /**
-         * Returns whether any advice has set an override return value.
+         * Returns the return value.
          *
-         * @return {@code true} if an advice return override is present
+         * @return the return value
          */
-        boolean hasAdviceReturning();
+        T getReturnValue();
 
         /**
-         * Returns the override return value set by advice.
+         * Initializes the actual return value from the target method invocation.
          *
-         * @return the advice-supplied return value
+         * @param returnValue the return value
          */
-        T getAdviceReturning();
+        void setReturnValue(T returnValue);
 
         /**
-         * Returns whether any advice has set an override exception.
+         * Returns whether any advice has set an return value.
          *
-         * @return {@code true} if an advice exception override is present
+         * @return {@code true} if a return value is present
          */
-        boolean hasAdviceThrowing();
+        boolean hasAssignedReturnValue();
+
 
         /**
-         * Returns the override exception set by advice.
+         * Returns the thrown exception.
          *
-         * @return the advice-supplied exception
+         * @return the thrown exception
          */
-        E getAdviceThrowing();
+        E getThrownException();
+
+        /**
+         * Initializes the actual exception thrown by the target method.
+         *
+         * @param thrownException the thrown exception, or {@code null}
+         */
+        void setThrownException(E thrownException);
+
+        /**
+         * Returns whether any advice has set an exception.
+         *
+         * @return {@code true} if an exception is present
+         */
+        boolean hasAssignedThrownException();
     }
 
 

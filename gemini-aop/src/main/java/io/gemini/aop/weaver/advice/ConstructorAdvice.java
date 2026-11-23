@@ -62,8 +62,8 @@ public class ConstructorAdvice {
         dispatcher.dispatch();
 
         // check invocation result
-        if (dispatcher.hasAdviceThrowing())
-            throw dispatcher.getAdviceThrowing();
+        if (dispatcher.hasAssignedThrownException())
+            throw dispatcher.getThrownException();
 
         // 3.replace arguments
         arguments = dispatcher.getArguments();
@@ -72,7 +72,6 @@ public class ConstructorAdvice {
 
     /**
      * Executed after the constructor body completes.
-     * Passes the newly created {@code this} reference to after-advice as the "returning" value.
      * Exception catching is not supported for constructors in ByteBuddy.
      *
      * @param targetObject the newly constructed instance ({@code this})
@@ -80,26 +79,38 @@ public class ConstructorAdvice {
      * @throws Throwable if after-advice sets a throw value
      */
     // refer to https://github.com/raphw/byte-buddy/issues/375
-    // Advice.Thrown and try-catch is not allowed for constructor at this time
-    @Advice.OnMethodExit(/* onThrowable = Throwable.class */ inline = true)
+    // Advice.Thrown and try-catch is not allowed for constructor, so framework will NOT invoke 
+    // after advices if exception occurs.
+    @Advice.OnMethodExit(/* onThrowable = Throwable.class */ inline = true, backupArguments = true)
     public static void afterConstructor(
             @Advice.This(readOnly = false, typing = Assigner.Typing.DYNAMIC) Object targetObject,
-//            @Advice.Return(readOnly = false, typing = Assigner.Typing.DYNAMIC) Object returning,
-//            @Advice.Thrown(readOnly = false, typing = Assigner.Typing.DYNAMIC) Throwable throwing,
+            @Advice.AllArguments(readOnly = false, typing = Assigner.Typing.DYNAMIC) Object[] arguments,
+//            @Advice.Return(readOnly = false, typing = Assigner.Typing.DYNAMIC) Object returnValue,
+//            @Advice.Thrown(readOnly = false, typing = Assigner.Typing.DYNAMIC) Throwable thrownException,
             @Advice.Local(value = VAR_ADVICE_DISPATCHER) Dispatcher<Object, Throwable> dispatcher
             ) throws Throwable {
         if (dispatcher == null)
             return;
 
-        // 1.set actual returning of target method
-        dispatcher.setThrowing(null);       // could not catch exception for constructor
-        dispatcher.setReturning(targetObject);
+        // 1.assign return value if BeforeAdvices marked return before execute instrumented method
+        if (dispatcher.hasAssignedThrownException()) 
+            throw dispatcher.getThrownException();
 
-        // 2.invoke AfterAdvices
+        // 2.set actual the return value of target method
+        dispatcher.setTargetObject(targetObject);
+        dispatcher.setArguments(arguments);
+
+        dispatcher.setThrownException(null);       // could not catch exception for constructor
+        dispatcher.setReturnValue(null);
+
+        // 3.invoke AfterAdvices
         dispatcher.dispatch();
 
         // check invocation result
-        if (dispatcher.hasAdviceThrowing()) 
-            throw dispatcher.getAdviceThrowing();
+        targetObject = dispatcher.getTargetObject();
+        arguments = dispatcher.getArguments();
+
+        if (dispatcher.hasAssignedThrownException()) 
+            throw dispatcher.getThrownException();
     }
 }

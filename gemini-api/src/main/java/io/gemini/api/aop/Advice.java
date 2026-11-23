@@ -43,53 +43,53 @@ public interface Advice {
     /**
      * Advice executed before the target method invocation.
      *
-     * @param <T> the return type of the target method
+     * @param <R> the return type of the target method
      * @param <E> the checked exception type declared by the target method
      */
-    interface Before<T, E extends Throwable> extends Advice {
+    interface Before<R, E extends Throwable> extends Advice {
 
         /**
          * Called before the target method. 
          * <ul>
          * <li>Arguments can be modified via {@link io.gemini.api.aop.Joinpoint.MutableJoinpoint#getArguments()}.
          * <li>The return value or thrown exception can be set
-         * via {@link io.gemini.api.aop.Joinpoint.MutableJoinpoint#setAdviceReturning(Object)} or
-         * {@link io.gemini.api.aop.Joinpoint.MutableJoinpoint#setAdviceThrowing(Throwable)} to bypass target
+         * via {@link io.gemini.api.aop.Joinpoint.MutableJoinpoint#setReturnValue(Object)} or
+         * {@link io.gemini.api.aop.Joinpoint.MutableJoinpoint#setThrownException(Throwable)} to bypass target
          * method invocation.
          * </ul>
          *
          * @param joinpoint the mutable joinpoint providing access to target object, arguments, and result
          * @throws Throwable if the advice itself throws an exception
          */
-        void before(MutableJoinpoint<T, E> joinpoint) throws Throwable;
+        void before(MutableJoinpoint<R, E> joinpoint) throws Throwable;
 
     }
 
     /**
      * Advice executed after the target method invocation.
      *
-     * @param <T> the return type of the target method
+     * @param <R> the return type of the target method
      * @param <E> the checked exception type declared by the target method
      */
-    interface After<T, E extends Throwable> extends Advice {
+    interface After<R, E extends Throwable> extends Advice {
 
         /**
          * Called after the target method.
          * <ul>
          * <li>Arguments can be modified via {@link io.gemini.api.aop.Joinpoint.MutableJoinpoint#getArguments()}.
          * <li>The return value or thrown exception can be set
-         * via {@link io.gemini.api.aop.Joinpoint.MutableJoinpoint#setAdviceReturning(Object)} or
-         * {@link io.gemini.api.aop.Joinpoint.MutableJoinpoint#setAdviceThrowing(Throwable)} to 
+         * via {@link io.gemini.api.aop.Joinpoint.MutableJoinpoint#setReturnValue(Object)} or
+         * {@link io.gemini.api.aop.Joinpoint.MutableJoinpoint#setThrownException(Throwable)} to 
          * override target method invocation.
          * <li>The return value or thrown exception can be inspected
-         * via {@link io.gemini.api.aop.Joinpoint.MutableJoinpoint#getReturning()} and
-         * {@link io.gemini.api.aop.Joinpoint.MutableJoinpoint#getThrowing()}.
+         * via {@link io.gemini.api.aop.Joinpoint.MutableJoinpoint#getReturnValue()} and
+         * {@link io.gemini.api.aop.Joinpoint.MutableJoinpoint#getThrownException()}.
          * </ul>
          *
          * @param joinpoint the mutable joinpoint
          * @throws Throwable if the advice itself throws an exception
          */
-        void after(MutableJoinpoint<T, E> joinpoint) throws Throwable;
+        void after(MutableJoinpoint<R, E> joinpoint) throws Throwable;
 
     }
 
@@ -98,10 +98,10 @@ public interface Advice {
      * 
      * TOOD: not supported
      *
-     * @param <T> the return type of the target method
+     * @param <R> the return type of the target method
      * @param <E> the checked exception type declared by the target method
      */
-    interface Around<T, E extends Throwable> extends Advice {
+    interface Around<R, E extends Throwable> extends Advice {
 
         /**
          * Wraps the target method. Call {@link io.gemini.api.aop.Joinpoint.ProceedingJoinpoint#proceed()}
@@ -111,7 +111,7 @@ public interface Advice {
          * @return the return value to use (may differ from the original)
          * @throws E if the target method or advice throws
          */
-        T invoke(ProceedingJoinpoint<T, E> joinpoint) throws E;
+        R invoke(ProceedingJoinpoint<R, E> joinpoint) throws E;
 
     }
 
@@ -128,7 +128,7 @@ public interface Advice {
     /**
      * Defines simple abstract base class for interface {@link Before}.
      */
-    abstract class AbstractBefore<T, E extends Throwable> extends AbstractBase implements Before<T, E> {
+    abstract class AbstractBefore<R, E extends Throwable> extends AbstractBase implements Before<R, E> {
 
     }
 
@@ -136,14 +136,14 @@ public interface Advice {
     /**
      * Defines simple abstract base class for interface {@link After}.
      */
-    abstract class AbstractAfter<T, E extends Throwable> extends AbstractBase implements After<T, E> {
+    abstract class AbstractAfter<R, E extends Throwable> extends AbstractBase implements After<R, E> {
     }
 
 
     /**
      * Defines simple abstract base class for interface {@link Before} and {@link After}.
      */
-    abstract class AbstractBeforeAfter<T, E extends Throwable> extends AbstractBase implements Before<T, E>, After<T, E> {
+    abstract class AbstractBeforeAfter<R, E extends Throwable> extends AbstractBase implements Before<R, E>, After<R, E> {
 
     }
 }

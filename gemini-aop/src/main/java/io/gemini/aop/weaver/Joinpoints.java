@@ -20,11 +20,13 @@ import java.lang.reflect.AccessibleObject;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.lang.reflect.Parameter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -44,6 +46,7 @@ import io.gemini.core.bootstrap.BootstrapClassConsumer;
 import io.gemini.core.util.Assert;
 import io.gemini.core.util.ClassUtils;
 import io.gemini.core.util.CollectionUtils;
+import io.gemini.core.util.ObjectUtils;
 import io.gemini.core.util.StringUtils;
 import io.gemini.core.util.Throwables;
 
@@ -83,7 +86,9 @@ public interface Joinpoints {
 
         private final boolean staticMethod;
 
-        private final boolean voidReturning;
+        private final boolean voidReturn;
+
+        private Class<?>[] exceptionTypes;
 
         // refresh at runtime
         private List<? extends Advisor> advisors;
@@ -109,20 +114,20 @@ public interface Joinpoints {
 
                 this.constructor = false;
                 this.staticMethod = true;
-                this.voidReturning = true;
+                this.voidReturn = true;
             } else {
                 this.typeInitializer = false;
 
                 if (accessibleObject instanceof Constructor) {
                     this.constructor = true;
                     this.staticMethod = false;
-                    this.voidReturning = true;
+                    this.voidReturn = true;
                 } else {
                     this.constructor = false;
 
                     Method method = (Method) accessibleObject;
                     this.staticMethod = Modifier.isStatic(method.getModifiers());
-                    this.voidReturning = method.getReturnType() == void.class;
+                    this.voidReturn = method.getReturnType() == void.class;
                 }
             }
 
@@ -164,7 +169,7 @@ public interface Joinpoints {
          * @return the target constructor, or {@code null}
          */
         public Constructor<?> getTargetConstructor() {
-            return (this.typeInitializer || this.constructor == false) ? null : (Constructor<?>) this.getStaticPart();
+            return (this.typeInitializer || !this.constructor) ? null : (Constructor<?>) this.getStaticPart();
         }
 
         /**
@@ -173,7 +178,7 @@ public interface Joinpoints {
          * @return the target method, or {@code null}
          */
         public Method getTargetMethod() {
-            return (this.typeInitializer || this.constructor == true) ? null : (Method) this.getStaticPart();
+            return (this.typeInitializer || this.constructor) ? null : (Method) this.getStaticPart();
         }
 
         private AccessibleObject getStaticPart() {
@@ -183,7 +188,7 @@ public interface Joinpoints {
         /**
          * Returns {@code true} if this joinpoint is a static class initializer ({@code <clinit>}).
          *
-         * @return {@code true} for type initializer joinpoints
+         * @return {@code true} for type initializer joinpoint
          */
         public boolean isTypeInitializer() {
             return typeInitializer;
@@ -192,7 +197,7 @@ public interface Joinpoints {
         /**
          * Returns {@code true} if the target method is static.
          *
-         * @return {@code true} for static method joinpoints
+         * @return {@code true} for static method joinpoint
          */
         public boolean isStaticMethod() {
             return staticMethod;
@@ -201,7 +206,7 @@ public interface Joinpoints {
         /**
          * Returns {@code true} if this joinpoint is a constructor.
          *
-         * @return {@code true} for constructor joinpoints
+         * @return {@code true} for constructor joinpoint
          */
         public boolean isConstructor() {
             return constructor;
@@ -210,10 +215,27 @@ public interface Joinpoints {
         /**
          * Returns {@code true} if the target method returns {@code void}.
          *
-         * @return {@code true} for void-returning joinpoints
+         * @return {@code true} for void-return joinpoint
          */
-        public boolean isVoidReturning() {
-            return voidReturning;
+        public boolean isVoidReturn() {
+            return voidReturn;
+        }
+
+        public Class<?>[] getExceptionTypes() {
+            if (this.exceptionTypes != null)
+                return this.exceptionTypes;
+
+            Class<?>[] exceptionTypes = isTypeInitializer() 
+                    ? new Class<?>[] {}
+                    : isConstructor() 
+                            ? getTargetConstructor().getExceptionTypes()
+                            : getTargetMethod().getExceptionTypes();
+
+            Class<?>[] matchingExceptionTypes = new Class<?>[exceptionTypes.length + 1];
+            System.arraycopy(exceptionTypes, 0, matchingExceptionTypes, 0, exceptionTypes.length);
+            matchingExceptionTypes[exceptionTypes.length] = RuntimeException.class;
+
+            return this.exceptionTypes = matchingExceptionTypes;
         }
 
         /**
@@ -228,41 +250,35 @@ public interface Joinpoints {
 
 
     /**
-     * Abstract base for all joinpoint implementations, providing common state:
+     * Abstract base class for all joinpoint implementations, providing common state:
      * descriptor, target object, arguments, and invocation context.
      */
-    abstract class AbstractBase<T, E extends Throwable> implements Joinpoint {
+    abstract class AbstractBase<R, E extends Throwable> implements Joinpoint {
 
         protected static final Logger LOGGER = LoggerFactory.getLogger(AbstractBase.class);
 
-        protected static final Object UNDEFINED_RETURNING = new Object();
-
+        protected static final Object UNDEFINED_RETURN_VALUE = new Object();
         @SuppressWarnings("StaticAssignmentOfThrowable")
-        protected static final Throwable UNDEFINED_THROWING = new Throwable();
+        protected static final Throwable UNDEFINED_THROWN_EXCEPTION = new Throwable();
 
 
-        protected Descriptor descriptor;
+        private Descriptor descriptor;
 
-        protected Object targetObject;
-        protected final boolean lazyInitializeThis;
+        private Object targetObject;
 
-        protected Object[] arguments;
+        private Object[] arguments;
 
-        protected final Map<String, Object> invocationContext;
+        private final Map<String, Object> invocationContext;
 
 
         AbstractBase(Descriptor descriptor, Object targetObject, Object[] arguments) {
             this.descriptor = descriptor;
 
-            if (descriptor.isConstructor() == true) {
-                this.lazyInitializeThis = true;
-
+            if (descriptor.isConstructor()) {
                 // ignore input targetObject
-                this.targetObject = UNDEFINED_RETURNING;
+                this.targetObject = null;
             } else {
-                this.lazyInitializeThis = false;
-
-                if (descriptor.staticMethod == false) {
+                if (!descriptor.staticMethod) {
                     Assert.notNull(targetObject, "'targetObject' must not be null.");
 
                     this.targetObject = targetObject;
@@ -274,9 +290,7 @@ public interface Joinpoints {
             if (arguments == null || arguments.length == 0) {
                 this.arguments = new Object[0];
             } else {
-                Object[] args = new Object[arguments.length];
-                System.arraycopy(arguments, 0, args, 0, arguments.length);
-                this.arguments = args;
+                this.arguments = arguments;
             }
 
             this.invocationContext = new LinkedHashMap<>();
@@ -287,7 +301,7 @@ public interface Joinpoints {
          *
          * @return the joinpoint descriptor
          */
-        Descriptor getDescriptor() {
+        protected Descriptor getDescriptor() {
             return descriptor;
         }
 
@@ -320,17 +334,40 @@ public interface Joinpoints {
         }
 
 
-        /**
-         * Returns the Spring AOP proxy. Cannot be {@code null}.
+        /** 
+         * {@inheritDoc}
          */
         @Override
         public Object getTargetObject() {
-            return (UNDEFINED_RETURNING == targetObject) ? null : this.targetObject;
+            return this.targetObject;
         }
 
+        /**
+         * Sets the target object of target method invocation.
+         * 
+         * @param targetObject the target object
+         */
+        protected void setTargetObjectInternal(Object targetObject) {
+            this.targetObject = targetObject;
+        }
+
+        /** 
+         * {@inheritDoc}
+         */
         @Override
         public Object[] getArguments() {
-            return this.arguments;
+            Object[] arguments = new Object[this.arguments.length];
+            System.arraycopy(this.arguments, 0, arguments, 0, this.arguments.length);
+            return arguments;
+        }
+
+        /**
+         * Sets arguments of target method invocation.
+         * 
+         * @param arguments the 
+         */
+        protected void setArgumentsInternal(Object... arguments) {
+            this.arguments = arguments;
         }
 
         /**
@@ -356,19 +393,19 @@ public interface Joinpoints {
      * {@link io.gemini.api.aop.Advice.After} advice. Allows advice to inspect and
      * override the target method's return value or thrown exception.
      */
-    class DefaultMutableJoinpoint<T, E extends Throwable> extends AbstractBase<T, E> implements MutableJoinpoint<T, E> {
+    class DefaultMutableJoinpoint<R, E extends Throwable> extends AbstractBase<R, E> implements MutableJoinpoint<R, E> {
 
         private final Supplier<? extends Advice> currentAdviceSupplier;
 
-        @SuppressWarnings("unchecked")
-        private T returning = (T) UNDEFINED_RETURNING;
-        @SuppressWarnings("unchecked")
-        private E throwing = (E) UNDEFINED_THROWING;
+        private boolean hasAssignedReturnValue = false;
 
         @SuppressWarnings("unchecked")
-        private T adviceReturning = (T) UNDEFINED_RETURNING;
+        private R returnValue = (R) UNDEFINED_RETURN_VALUE;
+
+        private boolean hasAssignedThrownException = false;
+
         @SuppressWarnings("unchecked")
-        private E adviceThrowing = (E) UNDEFINED_THROWING;
+        private E thrownException = (E) UNDEFINED_THROWN_EXCEPTION;
 
 
         public DefaultMutableJoinpoint(Descriptor descriptor, Object targetObject, 
@@ -378,173 +415,231 @@ public interface Joinpoints {
             this.currentAdviceSupplier = currentAdviceSupplier;
         }
 
+        private boolean isTypeAssignable(String operatedElement, Class<?> lhsTypes, Object rhsObject) {
+            return isTypeAssignable(operatedElement, new Class<?>[] {lhsTypes}, rhsObject);
+        }
+
+        private boolean isTypeAssignable(String operatedElement, Class<?>[] lhsTypes, Object rhsObject) {
+            Descriptor descriptor = getDescriptor();
+            boolean matched = false;
+            for (Class<?> lhsType : lhsTypes) {
+                if (rhsObject == null) {
+                    if (lhsType.isPrimitive()) 
+                        break;
+                    else {
+                        matched = true;
+                        continue;
+                    }
+                }
+                if (ClassUtils.isAssignableFrom(lhsType, rhsObject.getClass(), rhsObject != null)) {
+                    matched = true;
+                }
+            }
+            if (matched)
+                return true;
+
+            if (LOGGER.isWarnEnabled())
+                LOGGER.warn("Ignored '{}' referring to unassignable type. \n"
+                        + "  ClassLoader: {} \n"
+                        + "  TargetMethod: {} \n"
+                        + "    Types: {} \n"
+                        + "  AdviceMethod: {} \n"
+                        + "    AssignedObject: {} \n",
+                        operatedElement, 
+                        descriptor.getTargetClass().getClassLoader(),
+                        descriptor.getAccessibleName(), lhsTypes, 
+                        currentAdviceSupplier.get(), ObjectUtils.getObjectId(rhsObject)
+                );
+
+            return false;
+        }
+
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public void setTargetObject(Object targetObject) {
+            // validate target object
+            Descriptor descriptor = getDescriptor();
+            if (targetObject == null || descriptor.isStaticMethod()) {
+                if (LOGGER.isWarnEnabled()) {
+                    LOGGER.warn("Ignored 'this' reference assignment for static target method. \n"
+                            + "  ClassLoader: {} \n"
+                            + "  TargetMethod: {} \n"
+                            + "  CurrentAdvice: {} \n",
+                            descriptor.getTargetClass().getClassLoader(),
+                            descriptor.getAccessibleName(),
+                            currentAdviceSupplier.get()
+                    );
+                }
+                return;
+            }
+
+            if (!isTypeAssignable("this", descriptor.getTargetClass(), targetObject))
+                return;
+
+            // assign target object
+            super.setTargetObjectInternal(targetObject);
+        }
+
+
         /**
          * {@inheritDoc}
+         */
+        @Override
+        public void setArguments(Object... arguments) {
+            // validate arguments
+            if (arguments == null)
+                return;
+
+            Descriptor descriptor = getDescriptor();
+            Parameter[] parameters = descriptor.isTypeInitializer() 
+                    ? new Parameter[] {}
+                    : descriptor.isConstructor()
+                        ? descriptor.getTargetConstructor().getParameters()
+                        : descriptor.getTargetMethod().getParameters();
+            if (arguments.length != parameters.length)
+                return;
+
+            for (int index = 0; index < arguments.length; index++) {
+                Object argument = arguments[index];
+                Parameter parameter = parameters[index];
+                if (!isTypeAssignable("Argument-" + parameter.getName(), parameter.getType(), argument))
+                    return;
+            }
+
+            // assign arguments
+            super.setArgumentsInternal(arguments);
+        }
+
+
+        /**
+         * {@inheritDoc}
+         * 
          * <p>Throws {@link IllegalStateException} if the return value has not been set yet,
          * such as calling in {@link io.gemini.api.aop.Advice.Before}.</p>
          */
         @Override
-        public T getReturning() throws IllegalStateException {
-            if (UNDEFINED_RETURNING == this.returning)
-                throw new IllegalStateException("Uninitialized or unsupported returning");
+        public R getReturnValue() throws IllegalStateException {
+            if (UNDEFINED_RETURN_VALUE == this.returnValue)
+                throw new IllegalStateException("Uninitialized or unsupported return value.");
 
-            return returning;
+            return returnValue;
         }
 
         /**
-         * Sets the actual return value from the target method invocation.
-         * For constructors, also updates the {@code targetObject} reference.
+         * Sets the return value that advice wants to substitute for the target method's result.
+         * Validates that the value is assignment-compatible with the method's declared return type.
+         * Ignored with a warning if the type is incompatible.
          *
-         * @param returning the return value from the target method
+         * @param returnValue the overridden return value to set
          */
-        void setReturning(T returning) {
-            if (getDescriptor().isTypeInitializer()) {
-                this.returning = null;
-            } else if (getDescriptor().isConstructor()) {
-                this.targetObject = returning;
-                this.returning = returning;
-            } else {
-                this.returning = returning;
+        @Override
+        public void setReturnValue(R returnValue) {
+            // validate return value
+            Descriptor descriptor = getDescriptor();
+            if (descriptor.isVoidReturn()) {
+                assignReturnValueInternal(null);
+                return;
             }
+
+            Class<?> returnType = descriptor.isTypeInitializer() || descriptor.isConstructor() 
+                    ? void.class
+                    : descriptor.getTargetMethod().getReturnType();
+            if (returnValue == null || !isTypeAssignable("ReturnValue", returnType, returnValue))
+                return;
+
+            // assign return value
+            assignReturnValueInternal(returnValue);
+        }
+
+        private void assignReturnValueInternal(R returnValue) {
+            this.hasAssignedReturnValue = true;
+            this.returnValue = returnValue;
+
+            this.hasAssignedThrownException = false;
+            this.thrownException = null;
+        }
+
+        /**
+         * Initializes the actual return value from the target method invocation.
+         *
+         * @param returnValue the return value from the target method
+         */
+        protected void setReturnValueInternal(R returnValue) {
+            this.returnValue = returnValue;
+        }
+
+        /** 
+         * Returns {@code true} if advice has set a return value. 
+         */
+        protected boolean hasAssignedReturnValue() {
+            return hasAssignedReturnValue;
         }
 
 
         /**
          * {@inheritDoc}
+         * 
          * <p>Throws {@link IllegalStateException} if the exception has not been set yet,
          * such as calling in {@link io.gemini.api.aop.Advice.Before}.</p>
          */
         @Override
-        public E getThrowing() throws IllegalStateException {
-            if (UNDEFINED_THROWING == this.throwing)
-                throw new IllegalStateException("Uninitialized throwing");
+        public E getThrownException() throws IllegalStateException {
+            if (UNDEFINED_THROWN_EXCEPTION == this.thrownException)
+                throw new IllegalStateException("Uninitialized thrown exception.");
 
-            return throwing;
+            return thrownException;
+        }
+
+        /**
+         * Sets the exception that advice wants to substitute for the target method's thrown exception.
+         * 
+         * Validates that the exception is a {@link RuntimeException} or a declared checked exception.
+         * Ignored with a warning if the type is incompatible.
+         *
+         * @param thrownException the override exception to set; must not be {@code null}
+         */
+        @Override
+        public void setThrownException(E thrownException) {
+            // validate thrown exception
+            if (thrownException == null) {
+                if (LOGGER.isWarnEnabled())
+                    LOGGER.warn("Ignored null thrown exception.\n");
+
+                return;
+            }
+
+            if (!isTypeAssignable("ThrownException", getDescriptor().getExceptionTypes(), thrownException))
+                return;
+
+            // assign thrown exception
+            this.assignThrownExceptionInternal(thrownException);
+        }
+
+        private void assignThrownExceptionInternal(E thrownException) {
+            this.hasAssignedThrownException = true;
+            this.thrownException = thrownException;
+
+            this.hasAssignedReturnValue = false;
+            this.returnValue = null;
         }
 
         /**
          * Sets the actual exception thrown by the target method.
          *
-         * @param throwing the exception thrown, or {@code null} if none
+         * @param thrownException the exception thrown, or {@code null} if none
          */
-        void setThrowing(E throwing) {
-            this.throwing = throwing;
-        }
-
-
-        /** 
-         * Returns {@code true} if advice has set an override return value. 
-         */
-        boolean hasAdviceReturning() {
-            return this.adviceReturning != UNDEFINED_RETURNING;
+        protected void setThrownExceptionInternal(E thrownException) {
+            this.thrownException = thrownException;
         }
 
         /** 
-         * Returns the override return value set by advice, or the sentinel if not set. 
+         * Returns {@code true} if advice has set an exception. 
          */
-        T getAdviceReturning() {
-            return this.adviceReturning;
-        }
-
-        /**
-         * Sets the override return value that advice wants to substitute for the target method's result.
-         * Validates that the value is assignment-compatible with the method's declared return type.
-         * Ignored with a warning if the type is incompatible.
-         *
-         * @param returning the override return value to set
-         */
-        @Override
-        public void setAdviceReturning(T returning) {
-            Descriptor descriptor = getDescriptor();
-            if (descriptor.voidReturning) {
-                this.adviceReturning = null;
-                return;
-            }
-
-            Class<?> returnType = descriptor.getTargetMethod().getReturnType();
-            if (returning == null || ClassUtils.isAssignableFrom(returnType, returning.getClass()) == false) {
-                if (LOGGER.isWarnEnabled())
-                    LOGGER.warn("Ignored advice returning object '{}' which must be instance of Method's returning type. \n"
-                            + "  ClassLoader: {} \n"
-                            + "  TargetMethod: {} \n"
-                            + "  CurrentAdvice: {} \n",
-                            returning, 
-                            descriptor.getTargetClass().getClassLoader(),
-                            descriptor.getAccessibleName(),
-                            currentAdviceSupplier.get()
-                    );
-
-                return;
-            }
-
-            this.adviceReturning = returning;
-        }
-
-
-        /** 
-         * Returns {@code true} if advice has set an override exception. 
-         */
-        boolean hasAdviceThrowing() {
-            return this.adviceThrowing != UNDEFINED_THROWING;
-        }
-
-        /** 
-         * Returns the override exception set by advice, or the sentinel if not set. 
-         */
-        E getAdviceThrowing() {
-            return this.adviceThrowing;
-        }
-
-        /**
-         * Sets the override exception that advice wants to substitute for the target method's thrown exception.
-         * Validates that the exception is a {@link RuntimeException} or a declared checked exception.
-         * Ignored with a warning if the type is incompatible.
-         *
-         * @param throwing the override exception to set; must not be {@code null}
-         */
-        @Override
-        public void setAdviceThrowing(E throwing) {
-            if (throwing == null) {
-                if (LOGGER.isWarnEnabled())
-                    LOGGER.warn("Ignored null advice throwing.\n");
-
-                return;
-            }
-
-            Descriptor descriptor = getDescriptor();
-            Class<?>[] exceptionTypes = descriptor.isTypeInitializer() 
-                    ? null 
-                    : descriptor.isConstructor() 
-                        ? descriptor.getTargetConstructor().getExceptionTypes() 
-                        : descriptor.getTargetMethod().getExceptionTypes();
-            Class<? extends Throwable> throwingType = throwing.getClass();
-
-            boolean assignable = false;
-            if (exceptionTypes != null && exceptionTypes.length != 0) {
-                for (Class<?> exceptionClass : exceptionTypes) {
-                    if (exceptionClass.isAssignableFrom(throwingType)) {
-                        assignable = true;
-                        break;
-                    }
-                }
-            }
-
-            if (assignable == false && RuntimeException.class.isAssignableFrom(throwingType) == false) {
-                if (LOGGER.isWarnEnabled())
-                    LOGGER.warn("Ignored advice throwing object '{}' which must be instance of RuntimeException or declared exception types. \n"
-                            + "  ClassLoader: {} \n"
-                            + "  TargetMethod: {} \n"
-                            + "  CurrentAdvice: {} \n",
-                            throwing, 
-                            descriptor.getTargetClass().getClassLoader(),
-                            descriptor.getAccessibleName(),
-                            currentAdviceSupplier.get()
-                    );
-
-                return;
-            }
-
-            this.adviceThrowing = throwing;
+        protected boolean hasAssignedThrownException() {
+            return hasAssignedThrownException;
         }
     }
 
@@ -555,18 +650,18 @@ public interface Joinpoints {
      * instrumented joinpoint invocation and drives the {@link DefaultMutableJoinpoint}.
      */
     @BootstrapClassConsumer
-    class MutableJoinpointDispatcher<T, E extends Throwable> implements BootstrapDispatcher.Dispatcher<T, E>, Supplier<Advice> {
+    class MutableJoinpointDispatcher<R, E extends Throwable> implements BootstrapDispatcher.Dispatcher<R, E>, Supplier<Advice> {
 
         private static final Logger LOGGER = LoggerFactory.getLogger(MutableJoinpointDispatcher.class);
 
 
         private final AopContext aopContext;
 
-        private DefaultMutableJoinpoint<T, E> joinpoint = null;
+        private DefaultMutableJoinpoint<R, E> joinpoint = null;
 
         private boolean dispatchBeforeAdvice = true;
-        private List<? extends Advice.Before<T, E>> beforeAdvices = Collections.emptyList();
-        private List<? extends Advice.After<T, E>> afterAdvices = Collections.emptyList();
+        private List<? extends Advice.Before<R, E>> beforeAdvices = Collections.emptyList();
+        private List<? extends Advice.After<R, E>> afterAdvices = Collections.emptyList();
 
         private Advice currentAdvice;
 
@@ -614,14 +709,14 @@ public interface Joinpoints {
         @SuppressWarnings("unchecked")
         protected void doInitialize(Descriptor descriptor, Object targetObject, Object[] arguments) {
             // create Joinpoint instance
-            joinpoint = new DefaultMutableJoinpoint<T, E>(descriptor, targetObject, arguments, this);
+            joinpoint = new DefaultMutableJoinpoint<R, E>(descriptor, targetObject, arguments, this);
 
             // initialize advisors
             List<? extends Advisor> advisors = descriptor.getAdvisors();
             advisors = CollectionUtils.isEmpty(advisors) ? Collections.emptyList() : advisors;
 
-            List<Advice.Before<T, E>> beforeAdvices = new ArrayList<>();
-            List<Advice.After<T, E>> afterAdvices = new ArrayList<>();
+            List<Advice.Before<R, E>> beforeAdvices = new ArrayList<>();
+            List<Advice.After<R, E>> afterAdvices = new ArrayList<>();
             for (Iterator<? extends Advisor> iterator = advisors.iterator(); iterator.hasNext(); ) {
                 Advisor advisor = iterator.next();
                 Class<? extends Advice> adviceClass = advisor.getAdviceClass();
@@ -633,7 +728,7 @@ public interface Joinpoints {
 
                 boolean isBeforeAdvice = Advice.Before.class.isAssignableFrom(adviceClass);
                 boolean isAfterAdvice = Advice.After.class.isAssignableFrom(adviceClass);
-                if (isBeforeAdvice == false && isAfterAdvice == false) {
+                if (!isBeforeAdvice && !isAfterAdvice) {
                     continue;
                 }
 
@@ -644,13 +739,13 @@ public interface Joinpoints {
                     continue;
                 }
 
-                if (isBeforeAdvice == true && isAfterAdvice == true) {
-                    beforeAdvices.add( (Advice.Before<T, E>) advice );
-                    afterAdvices.add( (Advice.After<T, E>) advice );
-                } else if (isBeforeAdvice == true && isAfterAdvice == false) {
-                    beforeAdvices.add( (Advice.Before<T, E>) advice );
-                } else if (isBeforeAdvice == false && isAfterAdvice == true) {
-                    afterAdvices.add( (Advice.After<T, E>) advice );
+                if (isBeforeAdvice && isAfterAdvice) {
+                    beforeAdvices.add( (Advice.Before<R, E>) advice );
+                    afterAdvices.add( (Advice.After<R, E>) advice );
+                } else if (isBeforeAdvice && !isAfterAdvice) {
+                    beforeAdvices.add( (Advice.Before<R, E>) advice );
+                } else if (!isBeforeAdvice && isAfterAdvice) {
+                    afterAdvices.add( (Advice.After<R, E>) advice );
                 }
             }
 
@@ -663,11 +758,11 @@ public interface Joinpoints {
             return aopContext;
         }
 
-        protected List<? extends Advice.Before<T, E>> getBeforeAdvices() {
+        protected List<? extends Advice.Before<R, E>> getBeforeAdvices() {
             return beforeAdvices;
         }
 
-        protected List<? extends Advice.After<T, E>> getAfterAdvices() {
+        protected List<? extends Advice.After<R, E>> getAfterAdvices() {
             return afterAdvices;
         }
 
@@ -689,12 +784,12 @@ public interface Joinpoints {
          * @throws E if any advice throws an unrecoverable exception
          */
         @Override
-        public T dispatch() throws E {
-            if (dispatchBeforeAdvice == true && this.beforeAdvices.size() == 0) {
+        public R dispatch() throws E {
+            if (dispatchBeforeAdvice && this.beforeAdvices.size() == 0) {
                 dispatchBeforeAdvice = false;
                 return null;
             }
-            if (dispatchBeforeAdvice == false && this.afterAdvices.size() == 0) {
+            if (!dispatchBeforeAdvice && this.afterAdvices.size() == 0) {
                 return null;
             }
 
@@ -736,8 +831,8 @@ public interface Joinpoints {
          * @throws Throwable if any advice throws
          */
         protected void doInvokeBeforeAdvices(ClassLoader targetClassLoader) throws Throwable {
-            for (int index = 0; index < this.beforeAdvices.size(); index++) {
-                Before<T, E> advice = this.beforeAdvices.get(index);
+            for (Iterator<? extends Advice.Before<R, E>> it = beforeAdvices.listIterator(); it.hasNext(); ) {
+                Before<R, E> advice = it.next();
 
                 this.currentAdvice = advice;
                 try {
@@ -757,9 +852,6 @@ public interface Joinpoints {
 
                     Throwables.throwIfRequired(t);
                 }
-
-                if (hasAdviceReturning() || hasAdviceThrowing())
-                    break;
             }
 
             this.currentAdvice = null;
@@ -774,8 +866,8 @@ public interface Joinpoints {
          * @throws Throwable if any advice throws
          */
         protected void doInvokeAfterAdvices(ClassLoader targetClassLoader) throws Throwable {
-            for (int index = this.afterAdvices.size() - 1; index >= 0; index--) {
-                After<T, E> advice = this.afterAdvices.get(index);
+            for (ListIterator<? extends Advice.After<R, E>> it = afterAdvices.listIterator(afterAdvices.size()); it.hasPrevious(); ) {
+                After<R, E> advice = it.previous();
 
                 this.currentAdvice = advice;
                 try {
@@ -795,9 +887,6 @@ public interface Joinpoints {
 
                     Throwables.throwIfRequired(t);
                 }
-
-                if (hasAdviceReturning() || hasAdviceThrowing())
-                    break;
             }
 
             this.currentAdvice = null;
@@ -818,6 +907,37 @@ public interface Joinpoints {
         }
 
 
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public Object getTargetObject() {
+            return joinpoint.getTargetObject();
+        }
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public void setTargetObject(Object targetObject) {
+            Descriptor descriptor = joinpoint.getDescriptor();
+            if (dispatchBeforeAdvice && descriptor.isConstructor()) {
+                if (LOGGER.isWarnEnabled()) {
+                    LOGGER.warn("Ignored 'this' reference assignment in constructor prior to initialization. \n"
+                            + "  ClassLoader: {} \n"
+                            + "  TargetMethod: {} \n"
+                            + "  CurrentAdvice: {} \n",
+                            descriptor.getTargetClass().getClassLoader(),
+                            descriptor.getAccessibleName(),
+                            currentAdvice
+                    );
+                }
+                return;
+            }
+
+            joinpoint.setTargetObjectInternal(targetObject);
+        }
+
         /**
          * {@inheritDoc}
          * <p>Returns the arguments from the underlying joinpoint, which may have been modified by before-advice.</p>
@@ -827,13 +947,47 @@ public interface Joinpoints {
             return joinpoint.getArguments();
         }
 
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public void setArguments(Object[] arguments) {
+            joinpoint.setArgumentsInternal(arguments);
+        }
+
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public R getReturnValue() {
+            return joinpoint.getReturnValue();
+        }
+
         /**
          * {@inheritDoc}
          * <p>Delegates to the underlying joinpoint to record the target method's return value.</p>
          */
         @Override
-        public void setReturning(T returning) {
-            joinpoint.setReturning(returning);
+        public void setReturnValue(R returnValue) {
+            joinpoint.setReturnValueInternal(returnValue);
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public boolean hasAssignedReturnValue() {
+            return joinpoint.hasAssignedReturnValue();
+        }
+
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public E getThrownException() {
+            return joinpoint.getThrownException();
         }
 
         /**
@@ -841,41 +995,16 @@ public interface Joinpoints {
          * <p>Delegates to the underlying joinpoint to record the target method's thrown exception.</p>
          */
         @Override
-        public void setThrowing(E throwing) {
-            joinpoint.setThrowing(throwing);
-        }
-
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        public boolean hasAdviceReturning() {
-            return joinpoint.hasAdviceReturning();
+        public void setThrownException(E thrownException) {
+            joinpoint.setThrownExceptionInternal(thrownException);
         }
 
         /**
          * {@inheritDoc}
          */
         @Override
-        public T getAdviceReturning() {
-            return joinpoint.getAdviceReturning();
-        }
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        public boolean hasAdviceThrowing() {
-            return joinpoint.hasAdviceThrowing();
-        }
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        public E getAdviceThrowing() {
-            return joinpoint.getAdviceThrowing();
+        public boolean hasAssignedThrownException() {
+            return joinpoint.hasAssignedThrownException();
         }
 
 
@@ -883,7 +1012,7 @@ public interface Joinpoints {
          * Extends {@link MutableJoinpointDispatcher} to add per-type diagnostic logging
          * for joinpoint creation and before/after advice invocation.
          */
-        static class Diagnostic<T, E extends Throwable> extends MutableJoinpointDispatcher<T, E> {
+        static class Diagnostic<R, E extends Throwable> extends MutableJoinpointDispatcher<R, E> {
 
             private static final Logger LOGGER = LoggerFactory.getLogger(Diagnostic.class);
 
@@ -957,10 +1086,10 @@ public interface Joinpoints {
      * Drives the around advice chain by calling each advice's {@code invoke} method in order,
      * and ultimately invokes the original target method via {@link #proceed()}.
      */
-    class DefaultProceedingJoinpoint<T> extends AbstractBase<T, Throwable> implements ProceedingJoinpoint<T, Throwable> {
+    class DefaultProceedingJoinpoint<R> extends AbstractBase<R, Throwable> implements ProceedingJoinpoint<R, Throwable> {
 
         private int currentAdviceIndex = 0;
-        private final List<? extends Advice.Around<T, Throwable>> aroundAdvices;
+        private final List<? extends Advice.Around<R, Throwable>> aroundAdvices;
 
 
         @SuppressWarnings("unchecked")
@@ -972,7 +1101,7 @@ public interface Joinpoints {
             List<? extends Advisor> advisors = descriptor.getAdvisors();
             advisors = CollectionUtils.isEmpty(advisors) ? Collections.emptyList() : advisors;
 
-            List<Advice.Around<T, Throwable>> aroundAdvices = new ArrayList<>();
+            List<Advice.Around<R, Throwable>> aroundAdvices = new ArrayList<>();
             for (Iterator<? extends Advisor> iterator = advisors.iterator(); iterator.hasNext(); ) {
                 Advisor advisor = iterator.next();
                 Class<? extends Advice> adviceClass = advisor.getAdviceClass();
@@ -983,11 +1112,11 @@ public interface Joinpoints {
                 }
 
                 boolean isAroundAdvice = Advice.Around.class.isAssignableFrom(adviceClass);
-                if (isAroundAdvice == false) {
+                if (!isAroundAdvice) {
                     continue;
                 }
 
-                Advice.Around<T, Throwable> advice = (Advice.Around<T, Throwable>) advisor.getAdvice();
+                Advice.Around<R, Throwable> advice = (Advice.Around<R, Throwable>) advisor.getAdvice();
                 if (advice == null) {
                     iterator.remove();
 
@@ -1000,7 +1129,7 @@ public interface Joinpoints {
         }
 
         @Override
-        public T proceed() throws Throwable {
+        public R proceed() throws Throwable {
             if (currentAdviceIndex == this.aroundAdvices.size()) {
                 try {
                     // TODO: super call
@@ -1017,8 +1146,8 @@ public interface Joinpoints {
         }
 
         @Override
-        public T proceed(Object... arguments) throws Throwable {
-            this.arguments = arguments;
+        public R proceed(Object... arguments) throws Throwable {
+            super.setArgumentsInternal(arguments);
 
             return this.proceed();
         }
@@ -1031,13 +1160,13 @@ public interface Joinpoints {
      * instrumented joinpoint invocation and drives the {@link DefaultProceedingJoinpoint} chain.
      */
     @BootstrapClassConsumer
-    class ProceedingJoinpointDispatcher<T> implements BootstrapDispatcher.Dispatcher<T, Throwable> {
+    class ProceedingJoinpointDispatcher<R> implements BootstrapDispatcher.Dispatcher<R, Throwable> {
 
         private static final Logger LOGGER = LoggerFactory.getLogger(ProceedingJoinpointDispatcher.class);
 
         private final AopContext aopContext;
 
-        private DefaultProceedingJoinpoint<T> joinpoint = null;
+        private DefaultProceedingJoinpoint<R> joinpoint = null;
 
 
         /**
@@ -1074,7 +1203,7 @@ public interface Joinpoints {
         }
 
         protected void doInitialize(Descriptor descriptor, Object targetObject, Object[] arguments) {
-            joinpoint = new DefaultProceedingJoinpoint<T>(descriptor, targetObject, arguments);
+            joinpoint = new DefaultProceedingJoinpoint<R>(descriptor, targetObject, arguments);
         }
 
 
@@ -1090,7 +1219,7 @@ public interface Joinpoints {
             return joinpoint.getDescriptor().getAccessibleName();
         }
 
-        protected List<? extends Around<T, Throwable>> getAroundAdvice() {
+        protected List<? extends Around<R, Throwable>> getAroundAdvice() {
             return joinpoint.aroundAdvices;
         }
 
@@ -1103,7 +1232,7 @@ public interface Joinpoints {
          * @throws Throwable if any advice or the target method throws
          */
         @Override
-        public T dispatch() throws Throwable {
+        public R dispatch() throws Throwable {
             String targetTypeName = getTargetClass().getName();
             ClassLoader targetClassLoader = getTargetClass().getClassLoader();
             try {
@@ -1133,10 +1262,24 @@ public interface Joinpoints {
             }
         }
 
-        protected T doDispatch() throws Throwable {
+        protected R doDispatch() throws Throwable {
             return joinpoint.proceed();
         }
 
+
+        @Override
+        public Object getTargetObject() {
+            return joinpoint.getTargetObject();
+        }
+
+        /** 
+         * {@inheritDoc}
+         * <p>Not supported for around advice — throws {@link UnsupportedOperationException}.</p>
+         */
+        @Override
+        public void setTargetObject(Object targetObject) {
+            throw new UnsupportedOperationException();
+        }
 
         /**
          * {@inheritDoc}
@@ -1147,12 +1290,21 @@ public interface Joinpoints {
             return joinpoint.getArguments();
         }
 
-        /**
+        /** 
          * {@inheritDoc}
          * <p>Not supported for around advice — throws {@link UnsupportedOperationException}.</p>
          */
         @Override
-        public void setReturning(T returning) {
+        public void setArguments(Object[] arguments) {
+            throw new UnsupportedOperationException();
+        }
+
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public R getReturnValue() {
             throw new UnsupportedOperationException();
         }
 
@@ -1161,7 +1313,7 @@ public interface Joinpoints {
          * <p>Not supported for around advice — throws {@link UnsupportedOperationException}.</p>
          */
         @Override
-        public void setThrowing(Throwable throwing) {
+        public void setReturnValue(R returnValue) {
             throw new UnsupportedOperationException();
         }
 
@@ -1170,7 +1322,16 @@ public interface Joinpoints {
          * <p>Not supported for around advice — throws {@link UnsupportedOperationException}.</p>
          */
         @Override
-        public boolean hasAdviceReturning() {
+        public boolean hasAssignedReturnValue() {
+            throw new UnsupportedOperationException();
+        }
+
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public Throwable getThrownException() {
             throw new UnsupportedOperationException();
         }
 
@@ -1179,7 +1340,7 @@ public interface Joinpoints {
          * <p>Not supported for around advice — throws {@link UnsupportedOperationException}.</p>
          */
         @Override
-        public T getAdviceReturning() {
+        public void setThrownException(Throwable thrownException) {
             throw new UnsupportedOperationException();
         }
 
@@ -1188,16 +1349,7 @@ public interface Joinpoints {
          * <p>Not supported for around advice — throws {@link UnsupportedOperationException}.</p>
          */
         @Override
-        public boolean hasAdviceThrowing() {
-            throw new UnsupportedOperationException();
-        }
-
-        /**
-         * {@inheritDoc}
-         * <p>Not supported for around advice — throws {@link UnsupportedOperationException}.</p>
-         */
-        @Override
-        public Throwable getAdviceThrowing() {
+        public boolean hasAssignedThrownException() {
             throw new UnsupportedOperationException();
         }
 
@@ -1206,7 +1358,7 @@ public interface Joinpoints {
          * Extends {@link ProceedingJoinpointDispatcher} to add per-type diagnostic logging
          * for joinpoint creation and around advice dispatch.
          */
-        static class Diagnostic<T> extends ProceedingJoinpointDispatcher<T> {
+        static class Diagnostic<R> extends ProceedingJoinpointDispatcher<R> {
 
             private static final Logger LOGGER = LoggerFactory.getLogger(Diagnostic.class);
 
@@ -1235,7 +1387,7 @@ public interface Joinpoints {
 
 
             @Override
-            protected T doDispatch() throws Throwable {
+            protected R doDispatch() throws Throwable {
                 String targetTypeName = getTargetClass().getName();
                 if (LOGGER.isInfoEnabled() && getAopContext().isDiagnosticType(targetTypeName))
                     LOGGER.info("^Proceeding joinpoint instance of target type '{}', \n"

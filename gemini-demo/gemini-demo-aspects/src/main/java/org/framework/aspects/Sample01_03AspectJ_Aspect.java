@@ -65,13 +65,13 @@ public class Sample01_03AspectJ_Aspect {
         input.add(Sample01_03AspectJ_Aspect.class.getSimpleName());
 
         Request newRequest = new Request(input);
-        joinpoint.getArguments()[0] = newRequest;
+        joinpoint.setArguments(newRequest);
     }
 
 
     // refer to named pointcut in another class
-    @AfterReturning(pointcut = "org.framework.aspects.Sample01_03AspectJ_Aspect$CommonPointcuts.process()", returning="returning", argNames = "returning")
-    public Object after(MutableJoinpoint<Response<String>, RuntimeException> joinpoint, Response<String> returning) throws Throwable {
+    @AfterReturning(pointcut = "org.framework.aspects.Sample01_03AspectJ_Aspect$CommonPointcuts.process()", returning="returnValue", argNames = "returnValue")
+    public Object after(MutableJoinpoint<Response<String>, RuntimeException> joinpoint, Response<String> returnValue) throws Throwable {
         if (LOGGER.isInfoEnabled())
             LOGGER.info("Exited '{}' with args: {}", joinpoint.getTargetObject(), joinpoint.getArguments());
 
