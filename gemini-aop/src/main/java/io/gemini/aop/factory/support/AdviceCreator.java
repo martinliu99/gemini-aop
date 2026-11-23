@@ -61,7 +61,7 @@ public interface AdviceCreator {
 
     /**
      * Returns the {@link ElementMatcher} used to match target methods against advice method signature constraints 
-     * (e.g. returning type and throwing type compatibility).
+     * (e.g. return type and throw type compatibility).
      *
      * @return the advice matcher for this advice spec
      */
@@ -206,7 +206,7 @@ public interface AdviceCreator {
         @SuppressWarnings("unchecked")
         @Override
         public AdviceMatcher createAdviceMatcher(AdvisorContext advisorContext, AdviceSpec adviceSpec) {
-            if (adviceSpec == null || supports(adviceSpec) == false)
+            if (adviceSpec == null || !supports(adviceSpec))
                 return null;
 
             return doCreateAdviceMatcher(advisorContext, (A) adviceSpec);
@@ -221,7 +221,7 @@ public interface AdviceCreator {
         @Override
         public Class<? extends Advice> loadClass(AdvisorContext advisorContext, AdvisorSpec advisorSpec) {
             try {
-                if (advisorSpec == null || advisorSpec.getAdviceSpec() == null ||  supports(advisorSpec.getAdviceSpec()) == false)
+                if (advisorSpec == null || advisorSpec.getAdviceSpec() == null || !supports(advisorSpec.getAdviceSpec()))
                     return null;
 
                 return doLoadAdviceClass(advisorContext, advisorSpec, (A) advisorSpec.getAdviceSpec());
@@ -270,7 +270,7 @@ public interface AdviceCreator {
 
         protected boolean isValid(AdvisorContext advisorContext, String advisorName, A adviceSpec, 
                 Class<? extends Advice> adviceClass) {
-            if (Advice.class.isAssignableFrom(adviceClass) == true)
+            if (Advice.class.isAssignableFrom(adviceClass))
                 return true;
 
             if (LOGGER.isWarnEnabled())
@@ -293,7 +293,7 @@ public interface AdviceCreator {
         @SuppressWarnings("unchecked")
         @Override
         public Advice createInstance(AdvisorContext advisorContext, AdvisorSpec advisorSpec, Class<? extends Advice> adviceClass) {
-            if (advisorSpec == null || advisorSpec.getAdviceSpec() == null ||  supports(advisorSpec.getAdviceSpec()) == false)
+            if (advisorSpec == null || advisorSpec.getAdviceSpec() == null || !supports(advisorSpec.getAdviceSpec()))
                 return null;
 
             // try to instantiate advice object
@@ -345,7 +345,7 @@ public interface AdviceCreator {
          */
         @Override
         protected AdviceMatcher doCreateAdviceMatcher(AdvisorContext advisorContext, PojoAdviceSpec.Loaded adviceSpec) {
-            if (adviceSpec.getJoinpointTypeArgumentTypes() == null)
+            if (adviceSpec.getMutableJoinpointType() == null)
                 return null;
 
             return new AdviceMatcher.PojoAdviceMatcher(adviceSpec);
@@ -364,7 +364,7 @@ public interface AdviceCreator {
             if (adviceClass == null)
                 return null;
 
-            if (isValid(advisorContext, advisorName, adviceSpec, adviceClass) == false)
+            if (!isValid(advisorContext, advisorName, adviceSpec, adviceClass))
                 return null;
 
             return adviceClass;
@@ -404,23 +404,23 @@ public interface AdviceCreator {
                 AdvisorSpec advisorSpec, AspectJAdviceSpec.Loaded adviceSpec) {
             long startedAt = System.nanoTime();
 
+            // 1.try to load advice class if exists
             ClassLoader aspectClassLoader = advisorContext.getClassLoader();
-            String advisorName = advisorSpec.getAdvisorName();
             try {
-                // try to load advice class if exists
-                try {
-                    return (Class<? extends Advice>) aspectClassLoader.loadClass(adviceSpec.getAdviceClassName());
-                } catch (Throwable t) {
-                    Throwables.throwIfRequired(t);
-                }
+                return (Class<? extends Advice>) aspectClassLoader.loadClass(adviceSpec.getAdviceClassName());
+            } catch (Throwable t) {
+                Throwables.throwIfRequired(t);
+            }
 
 
-                // try to make advice class
-                Class<?> aspectJClass = this.loadClass(advisorContext, advisorName, 
-                        adviceSpec, adviceSpec.getDeclaringTypeName());
-                if (aspectJClass == null)
-                    return null;
+            // 2.try to make advice class
+            String advisorName = advisorSpec.getAdvisorName();
+            Class<?> aspectJClass = this.loadClass(advisorContext, advisorName, 
+                    adviceSpec, adviceSpec.getDeclaringTypeName());
+            if (aspectJClass == null)
+                return null;
 
+            try {
                 Class<? extends Advice> adviceClass = adviceSpec.getUnloadedAdviceClass()
                         .load(aspectClassLoader, ClassLoadingStrategySelector.Default.SINGLETON.select(aspectJClass))
                         .getLoaded();
@@ -431,7 +431,15 @@ public interface AdviceCreator {
                     );
 
                 return adviceClass;
-            } catch (Exception e) {
+            } catch (LinkageError e) {
+                try {
+                    Class<? extends Advice> adviceClass = (Class<? extends Advice>) aspectClassLoader.loadClass(adviceSpec.getAdviceClassName());
+                    if (adviceClass != null)
+                        return adviceClass;
+                } catch (Throwable t) {
+                    Throwables.throwIfRequired(t);
+                }
+
                 if (LOGGER.isWarnEnabled())
                     LOGGER.warn("Could not generate adapter class for AspectJ advice method. \n"
                             + "  AdvisorName: {} \n"
@@ -568,7 +576,7 @@ public interface AdviceCreator {
     /**
      * Loads raw ByteBuddy {@code @Advice} classes directly without any wrapping.
      */
-    class ByteBuddyAdviceCreator extends AbstractBase<ByteBuddyAdviceSpec> {
+    class ByteBuddyAdviceCreator extends AbstractBase<ByteBuddyAdviceSpec.Loaded> {
 
         /** 
          * {@inheritDoc}
@@ -582,7 +590,7 @@ public interface AdviceCreator {
          * {@inheritDoc}
          */
         @Override
-        protected AdviceMatcher doCreateAdviceMatcher(AdvisorContext advisorContext, ByteBuddyAdviceSpec adviceSpec) {
+        protected AdviceMatcher doCreateAdviceMatcher(AdvisorContext advisorContext, ByteBuddyAdviceSpec.Loaded adviceSpec) {
             return new AdviceMatcher.ByteBuddyAdviceMatcher(adviceSpec);
         }
 
@@ -591,7 +599,7 @@ public interface AdviceCreator {
          */
         @Override
         protected Class<? extends Advice> doLoadAdviceClass(AdvisorContext advisorContext,
-                AdvisorSpec advisorSpec, ByteBuddyAdviceSpec adviceSpec) {
+                AdvisorSpec advisorSpec, ByteBuddyAdviceSpec.Loaded adviceSpec) {
             // try to load advice class
             return loadClass(advisorContext, advisorSpec.getAdvisorName(),
                     adviceSpec, adviceSpec.getAdviceClassName());
