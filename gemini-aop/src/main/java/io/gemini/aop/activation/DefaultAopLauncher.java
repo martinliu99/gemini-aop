@@ -15,6 +15,8 @@
  */
 package io.gemini.aop.activation;
 
+import static net.bytebuddy.matcher.ElementMatchers.isEnum;
+
 import java.io.File;
 import java.io.IOException;
 import java.lang.instrument.Instrumentation;
@@ -22,6 +24,8 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.event.Level;
@@ -44,6 +48,7 @@ import io.gemini.core.logging.LoggingSystem;
 import io.gemini.core.util.StringUtils;
 import net.bytebuddy.dynamic.Nexus;
 import net.bytebuddy.dynamic.scaffold.TypeWriter;
+import net.bytebuddy.pool.TypePool;
 import net.bytebuddy.utility.AsmClassReader;
 import net.bytebuddy.utility.AsmClassWriter;
 import net.bytebuddy.utility.OpenedClassReader;
@@ -137,8 +142,6 @@ public class DefaultAopLauncher implements AopLauncher {
 
 
             // 5.create AdvisorFactory
-            System.getProperties().setProperty(OpenedClassReader.PROCESSOR_PROPERTY, "CLASS_FILE_API_FIRST");
-
             this.advisorFactory = AdvisorFactory.Creator.INSTANCE.create(aopContext);
 
 
@@ -160,7 +163,8 @@ public class DefaultAopLauncher implements AopLauncher {
         } finally {
             replayDeferredMessages(configView);
 
-            launcherMetrics.startupAopLauncher();
+            if (launcherMetrics != null)
+                launcherMetrics.startupAopLauncher();
         }
     }
 
@@ -184,19 +188,39 @@ public class DefaultAopLauncher implements AopLauncher {
      * @param aopContext aop context
      */
     private void configureByteBuddy(AopContext aopContext) {
-        // enable Class-File API under JDK 24+.
-        // put this setting to system properties before {@code AsmClassReader}
-        // and {@code AsmClassWriter} class initialization to keep FACTORY field keeps in sysc
-        // to avoid byte code generation conflict.
-        System.getProperties().setProperty(OpenedClassReader.PROCESSOR_PROPERTY, "CLASS_FILE_API_FIRST");
-        if (LOGGER.isDebugEnabled())
-            LOGGER.debug("Configured ByteBuddy AsmClassReader as '{}', AsmClassWriter as '{}'.",
-                    AsmClassReader.Factory.Default.CLASS_FILE_API_FIRST,
-                    AsmClassWriter.Factory.Default.CLASS_FILE_API_FIRST
-            );
+        // initialize class file processor
+        TypePool typePool = aopContext.getTypePoolFactory().createTypePool(aopContext.getAopClassLoader(), null);
+        Set<String> availableProcessors = typePool.describe("net.bytebuddy.utility.AsmClassReader$Factory$Default").resolve()
+                .getDeclaredFields()
+                .filter( isEnum() )
+                .stream()
+                .map( f -> f.getName() )
+                .collect( Collectors.toSet() );
+
+        String classFileProcessorKey = "aop.launcher.classFileProcessor";
+        String classFileProcessor = aopContext.getConfigView().getAsString(classFileProcessorKey, "").toUpperCase(Locale.ENGLISH);
+        if (!availableProcessors.contains(classFileProcessor)) {
+            if (LOGGER.isWarnEnabled())
+                LOGGER.warn("Ignored illegal setting '{} = {}' and use default value. \n", 
+                        classFileProcessorKey, classFileProcessor);
+        } else {
+            // set system properties before {@code AsmClassReader} and {@code AsmClassWriter} 
+            // class initialization to keep FACTORY field in sysc and avoid possible byte code generation conflict.
+            System.getProperties().setProperty(OpenedClassReader.PROCESSOR_PROPERTY, classFileProcessor);
+
+            AsmClassReader.Factory.Default.valueOf(classFileProcessor);
+            AsmClassWriter.Factory.Default.valueOf(classFileProcessor);
+
+            if (LOGGER.isDebugEnabled())
+                LOGGER.debug("Configured ByteBuddy ClassFileProcessor as '{}'.",
+                        classFileProcessor
+                );
+        }
+
 
         // disable Nexus
         System.getProperties().setProperty(Nexus.PROPERTY, "true");
+
 
         // set byte code dump path
         if (aopContext.isDumpByteCode()) {
