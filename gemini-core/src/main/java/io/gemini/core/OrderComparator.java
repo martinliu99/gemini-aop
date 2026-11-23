@@ -41,19 +41,28 @@ public enum OrderComparator implements Comparator<Object> {
     public int compare(Object o1,  Object o2) {
         return doCompare(o1, o2);
     }
-
+ 
+    @SuppressWarnings({ "unchecked", "rawtypes" })
     private int doCompare(Object o1,  Object o2) {
+        if (o1 == null)
+            return 1;
+        else if (o2 == null)
+            return -1;
+
         int i1 = getOrder(o1);
         int i2 = getOrder(o2);
 
-        return (i1 < i2) ? -1 : (i1 > i2) ? 1 : 0;
+        if (i1 < i2) 
+            return -1;
+        else if (i1 > i2) 
+            return 1;
+        else if (o1 instanceof Comparable && o2 instanceof Comparable)
+            return ((Comparable) o1).compareTo(o2);
+        return 0;
     }
 
     @SuppressWarnings("rawtypes")
     private int getOrder(Object obj) {
-        if (obj == null)
-            return Order.LOWEST_PRECEDENCE;
-
         if (obj instanceof Ordered)
             return ((Ordered) obj).getOrder();
         else if (obj instanceof Class)
