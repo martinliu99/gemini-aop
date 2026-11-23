@@ -393,7 +393,7 @@ public interface PointcutSpecParser {
             boolean breakCircularity = configView.getAsBoolean(configKeyPrefix + "breakCircularity", 
                     PointcutSpec.DEFAULT_BREAK_CIRCULARITY);
 
-            return new ExprPointcutSpec.Default(breakCircularity, pointcutExpression);
+            return new AspectJPointcutSpec.Default(breakCircularity, pointcutExpression);
         }
     }
 }

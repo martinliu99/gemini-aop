@@ -175,14 +175,15 @@ public class WeaverContext {
 
         // load weaver installer settings
         {
-            String strategy = configView.getAsString("aop.weaver.redefinitionStrategy", "").toUpperCase(Locale.ENGLISH);
+            String redefinitionStrategyKey = "aop.weaver.redefinitionStrategy";
+            String strategy = configView.getAsString(redefinitionStrategyKey, "").toUpperCase(Locale.ENGLISH);
 
             try {
                 this.redefinitionStrategy = RedefinitionStrategy.valueOf(strategy);
             } catch (Exception e) {
                 if (LOGGER.isWarnEnabled())
-                    LOGGER.warn("Ignored illegal setting '{}' and use default RedefinitionStrategy '{}'. \n", 
-                            strategy, RedefinitionStrategy.RETRANSFORMATION);
+                    LOGGER.warn("Ignored illegal setting '{} = {}' and use default value '{}'. \n", 
+                            redefinitionStrategyKey, strategy, RedefinitionStrategy.RETRANSFORMATION);
 
                 this.redefinitionStrategy = RedefinitionStrategy.RETRANSFORMATION;
             }
