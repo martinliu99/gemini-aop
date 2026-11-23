@@ -101,6 +101,8 @@ public class PointcutParser {
      */
     public PointcutParser(TypeWorld typeWorld, Set<PointcutPrimitive> supportedPointcutKinds) {
         this.typeWorld = typeWorld;
+        if (supportedPointcutKinds == null)
+            supportedPointcutKinds = getAllSupportedPointcutPrimitives();
 
         supportedPrimitives = supportedPointcutKinds;
         for (PointcutPrimitive pointcutPrimitive : supportedPointcutKinds) {

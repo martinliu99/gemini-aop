@@ -33,7 +33,7 @@ import io.gemini.aspectj.weaver.PointcutParameter;
  */
 class InternalVar extends Var implements PointcutParameter {
 
-    private final ParamCategory paramCategory;
+    private final ParameterCategory parameterCategory;
     private final int argsIndex;
 
 
@@ -41,23 +41,23 @@ class InternalVar extends Var implements PointcutParameter {
      * Creates an {@code InternalVar} with no argument index ({@link PointcutParameter#INVALID_ARGS_INDEX}).
      *
      * @param type          the resolved type of this variable
-     * @param paramCategory the parameter category indicating the variable's role
+     * @param parameterCategory the parameter category indicating the variable's role
      */
-    public InternalVar(ResolvedType type, ParamCategory paramCategory) {
-        this(type, paramCategory, INVALID_ARGS_INDEX);
+    public InternalVar(ResolvedType type, ParameterCategory parameterCategory) {
+        this(type, parameterCategory, INVALID_ARGS_INDEX);
     }
 
     /**
      * Creates an {@code InternalVar} with an explicit argument index.
      *
      * @param type          the resolved type of this variable
-     * @param paramCategory the parameter category indicating the variable's role
+     * @param parameterCategory the parameter category indicating the variable's role
      * @param argsIndex     the index of this variable in the method's argument list
      */
-    public InternalVar(ResolvedType type, ParamCategory paramCategory, int argsIndex) {
+    public InternalVar(ResolvedType type, ParameterCategory parameterCategory, int argsIndex) {
         super(type);
 
-        this.paramCategory = paramCategory;
+        this.parameterCategory = parameterCategory;
         this.argsIndex = argsIndex;
     }
 
@@ -65,8 +65,8 @@ class InternalVar extends Var implements PointcutParameter {
      * {@inheritDoc}
      */
     @Override
-    public ParamCategory getParamCategory() {
-        return paramCategory;
+    public ParameterCategory getParameterCategory() {
+        return parameterCategory;
     }
 
     /**
@@ -75,5 +75,13 @@ class InternalVar extends Var implements PointcutParameter {
     @Override
     public int getArgsIndex() {
         return argsIndex;
+    }
+
+    /** 
+     * {@inheritDoc}
+     */
+    @Override
+    public String getMacthedTypeName() {
+        return this.getType().getRawName();
     }
 }

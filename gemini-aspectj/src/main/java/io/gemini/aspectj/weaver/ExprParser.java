@@ -45,6 +45,7 @@ import org.aspectj.weaver.tools.PointcutPrimitive;
 import io.gemini.api.BaseException;
 import io.gemini.aspectj.weaver.TypeWorld.WorldLintException;
 import io.gemini.aspectj.weaver.patterns.HasPatternParser;
+import io.gemini.aspectj.weaver.patterns.NameMatcherParser;
 import io.gemini.aspectj.weaver.patterns.PatternParserV2;
 import io.gemini.aspectj.weaver.patterns.TypeNamePatternParser;
 import io.gemini.aspectj.weaver.world.ElementExpr.ClassLoaderExpr;
@@ -209,7 +210,7 @@ public enum ExprParser {
      */
     public Pointcut parsePointcutExpr(TypeWorld typeWorld, String pointcutExpression) 
             throws ExprParseException, ExprLintException, ExprUnknownException {
-        return parsePointcutExpr(typeWorld, null, pointcutExpression, null, null);
+        return parsePointcutExpr(typeWorld, null, pointcutExpression, null, Collections.emptyMap());
     }
 
     /**

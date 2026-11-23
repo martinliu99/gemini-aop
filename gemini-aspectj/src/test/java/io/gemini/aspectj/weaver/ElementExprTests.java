@@ -144,7 +144,7 @@ public class ElementExprTests {
 
             assertThat( elementExpr.matches( getClass().getName() ) ).isTrue();
             assertThat( elementExpr.matches( ElementExprTests.InnerClass.class.getName() ) ).isTrue();
-            assertThat( elementExpr.matches( ElementExprTests.NestClass.class.getName() ) ).isFalse();
+            assertThat( elementExpr.matches( ElementExprTests.NestedClass.class.getName() ) ).isFalse();
         }
 
         {
@@ -336,7 +336,7 @@ public class ElementExprTests {
 
             assertThat( elementExpr.matches( TypeDescription.ForLoadedType.of(getClass()) ) ).isTrue();
             assertThat( elementExpr.matches( TypeDescription.ForLoadedType.of(ElementExprTests.InnerClass.class) ) ).isTrue();
-            assertThat( elementExpr.matches( TypeDescription.ForLoadedType.of(ElementExprTests.NestClass.class) ) ).isFalse();
+            assertThat( elementExpr.matches( TypeDescription.ForLoadedType.of(ElementExprTests.NestedClass.class) ) ).isFalse();
         }
 
 
@@ -407,7 +407,7 @@ public class ElementExprTests {
         ElementExprTests enclosingType = ElementExprTests.this;
     }
 
-    public static class NestClass {}
+    public static class NestedClass {}
 
 
     public @interface Mark {}

@@ -27,7 +27,7 @@ import org.aspectj.weaver.UnresolvedType;
 import org.aspectj.weaver.World;
 import org.aspectj.weaver.ast.Var;
 
-import io.gemini.aspectj.weaver.PointcutParameter.ParamCategory;
+import io.gemini.aspectj.weaver.PointcutParameter.ParameterCategory;
 
 
 /**
@@ -92,7 +92,7 @@ class InternalShadow extends Shadow {
     @Override
     public Var getThisVar() {
         if (thisVar == null && hasThis()) {
-            thisVar = new InternalVar(getThisType().resolve(world), ParamCategory.THIS_VAR);
+            thisVar = new InternalVar(getThisType().resolve(world), ParameterCategory.THIS_VAR);
         }
         return thisVar;
     }
@@ -103,7 +103,7 @@ class InternalShadow extends Shadow {
     @Override
     public Var getTargetVar() {
         if (targetVar == null && hasTarget()) {
-            targetVar = new InternalVar(getThisType().resolve(world), ParamCategory.TARGET_VAR);
+            targetVar = new InternalVar(getThisType().resolve(world), ParameterCategory.TARGET_VAR);
         }
         return targetVar;
     }
@@ -124,7 +124,7 @@ class InternalShadow extends Shadow {
         if (argsVars == null) {
             this.argsVars = new Var[this.getArgCount()];
             for (int j = 0; j < this.argsVars.length; j++) {
-                this.argsVars[j] = new InternalVar(getArgType(j).resolve(world), ParamCategory.ARGS_VAR, j);
+                this.argsVars[j] = new InternalVar(getArgType(j).resolve(world), ParameterCategory.ARGS_VAR, j);
             }
         }
 
@@ -171,7 +171,7 @@ class InternalShadow extends Shadow {
     public Var getKindedAnnotationVar(UnresolvedType annotationType) {
         ResolvedType annType = annotationType.resolve(world);
         if (annotationVar.get(annType) == null) {
-            Var v = new InternalVar(annType, ParamCategory.AT_ANNOTATION_VAR);
+            Var v = new InternalVar(annType, ParameterCategory.AT_ANNOTATION_VAR);
             annotationVar.put(annType, v);
         }
         return (Var) annotationVar.get(annType);
@@ -186,7 +186,7 @@ class InternalShadow extends Shadow {
     public Var getWithinAnnotationVar(UnresolvedType annotationType) {
         ResolvedType annType = annotationType.resolve(world);
         if (withinAnnotationVar.get(annType) == null) {
-            Var v = new InternalVar(annType, ParamCategory.AT_WITHIN_VAR);
+            Var v = new InternalVar(annType, ParameterCategory.AT_WITHIN_VAR);
             withinAnnotationVar.put(annType, v);
         }
         return (Var) withinAnnotationVar.get(annType);
@@ -201,7 +201,7 @@ class InternalShadow extends Shadow {
     public Var getWithinCodeAnnotationVar(UnresolvedType annotationType) {
         ResolvedType annType = annotationType.resolve(world);
         if (withinCodeAnnotationVar.get(annType) == null) {
-            Var v = new InternalVar(annType, ParamCategory.AT_WITHINCODE_VAR);
+            Var v = new InternalVar(annType, ParameterCategory.AT_WITHINCODE_VAR);
             withinCodeAnnotationVar.put(annType, v);
         }
         return (Var) withinCodeAnnotationVar.get(annType);
@@ -213,7 +213,7 @@ class InternalShadow extends Shadow {
     @Override
     public Var getThisAnnotationVar(UnresolvedType annotationType) {
         if (atThisVar == null) {
-            atThisVar = new InternalVar(annotationType.resolve(world), ParamCategory.AT_THIS_VAR);
+            atThisVar = new InternalVar(annotationType.resolve(world), ParameterCategory.AT_THIS_VAR);
         }
         return atThisVar;
     }
@@ -224,7 +224,7 @@ class InternalShadow extends Shadow {
     @Override
     public Var getTargetAnnotationVar(UnresolvedType annotationType) {
         if (atTargetVar == null) {
-            atTargetVar = new InternalVar(annotationType.resolve(world), ParamCategory.AT_TARGET_VAR);
+            atTargetVar = new InternalVar(annotationType.resolve(world), ParameterCategory.AT_TARGET_VAR);
         }
         return atTargetVar;
     }
@@ -247,7 +247,7 @@ class InternalShadow extends Shadow {
             return null;
 
         if (vars[i] == null) {
-            vars[i] = new InternalVar(annType, ParamCategory.AT_ARGS_VAR, i);
+            vars[i] = new InternalVar(annType, ParameterCategory.AT_ARGS_VAR, i);
         }
         return vars[i];
     }

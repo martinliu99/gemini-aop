@@ -45,7 +45,7 @@ public class NameMatcherParserTests {
             assertThat(matcher.toString()).isEqualTo("startsWith(com.test)");
         }
 
-        // end s with
+        // ends with
         {
             String expression = "*test.example";
             ElementMatcher<String> matcher = NameMatcherParser.INSTANCE.parseMatcher(expression);

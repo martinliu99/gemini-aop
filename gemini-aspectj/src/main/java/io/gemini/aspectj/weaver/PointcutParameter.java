@@ -15,14 +15,12 @@
  */
 package io.gemini.aspectj.weaver;
 
-import net.bytebuddy.description.type.TypeDescription;
-
 /**
  * Describes a single parameter in an AspectJ pointcut binding.
  * <p>
- * Each parameter has a category ({@link ParamCategory}) indicating its role
- * (e.g., joinpoint, returning value, args binding), an optional argument index,
- * and — for named parameters — a name and generic type.
+ * Each parameter has a category ({@link ParameterCategory}) indicating its role
+ * (e.g., joinpoint, returned value, args binding), an optional argument index,
+ * and — for named parameters — a name and type.
  * </p>
  *
  * @author   martin.liu
@@ -38,7 +36,14 @@ public interface PointcutParameter {
      *
      * @return the parameter category; never {@code null}
      */
-    ParamCategory getParamCategory();
+    ParameterCategory getParameterCategory();
+
+    /**
+     * Returns the type name of this pointcut parameter.
+     * 
+     * @return the type name of parameter.
+     */
+    String getMacthedTypeName();
 
     /**
      * Returns the index of this parameter in the method's argument list,
@@ -52,13 +57,13 @@ public interface PointcutParameter {
     /**
      * Enumerates parameter categories.
      */
-    enum ParamCategory {
+    enum ParameterCategory {
 
         JOINPOINT_PARAM,
         MUTABLE_JOINPOINT_PARAM,
         PROCEDDING_JOINPOINT_PARAM,
-
         STATIC_PART_PARAM,
+
         RETURNING_ANNOTATION,
         THROWING_ANNOTATION,
 
@@ -72,101 +77,5 @@ public interface PointcutParameter {
         AT_WITHINCODE_VAR,
         AT_ANNOTATION_VAR,
         ;
-    }
-
-
-    /**
-     * Describes a named {@code PointcutParameter} with parameter type.
-     */
-    interface NamedPointcutParameter extends PointcutParameter {
-
-        /**
-         * Returns the name of this parameter as declared in the pointcut expression.
-         *
-         * @return the parameter name; never {@code null}
-         */
-        String getParamName();
-
-        /**
-         * Returns the generic type of this parameter.
-         *
-         * @return the parameter's generic type; never {@code null}
-         */
-        TypeDescription getParamType();
-    }
-
-
-    /**
-     * Default implementation of {@code NamedPointcutParameter}.
-     */
-    class Default implements NamedPointcutParameter {
-
-        private final String paramName;
-        private final TypeDescription paramType;
-        private final ParamCategory paramCategory;
-        private final int argsIndex;
-
-        /**
-         * Creates a {@code Default} parameter with no args index (set to {@link #INVALID_ARGS_INDEX}).
-         *
-         * @param paramName     the parameter name
-         * @param paramType     the parameter's generic type
-         * @param paramCategory the parameter category
-         */
-        public Default(String paramName, TypeDescription paramType, 
-                ParamCategory paramCategory) {
-            this.paramName = paramName;
-            this.paramType = paramType;
-            this.paramCategory = paramCategory;
-            this.argsIndex = INVALID_ARGS_INDEX;
-        }
-
-        /**
-         * Creates a {@code Default} parameter by copying the category and args index
-         * from an existing {@link PointcutParameter}.
-         *
-         * @param paramName          the parameter name
-         * @param paramType          the parameter's generic type
-         * @param pointcutParameter  the source parameter to copy category and args index from
-         */
-        public Default(String paramName, TypeDescription paramType,
-                PointcutParameter pointcutParameter) {
-            this.paramName = paramName;
-            this.paramType = paramType;
-            this.paramCategory = pointcutParameter.getParamCategory();
-            this.argsIndex = pointcutParameter.getArgsIndex();
-        }
-
-        /** 
-         * {@inheritDoc} 
-         */
-        @Override
-        public String getParamName() {
-            return this.paramName;
-        }
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        public TypeDescription getParamType() {
-            return paramType;
-        }
-
-        /**
-         *  {@inheritDoc} 
-         */
-        @Override
-        public ParamCategory getParamCategory() {
-            return this.paramCategory;
-        }
-
-        /**
-         *  {@inheritDoc} 
-         */
-        @Override
-        public int getArgsIndex() {
-            return argsIndex;
-        }
     }
 }
