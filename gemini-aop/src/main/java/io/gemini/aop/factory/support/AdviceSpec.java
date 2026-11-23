@@ -26,12 +26,11 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.StringTokenizer;
 import java.util.stream.Collectors;
 
@@ -46,8 +45,7 @@ import io.gemini.aop.matcher.ExprPointcut;
 import io.gemini.api.aop.Advice;
 import io.gemini.api.aop.Joinpoint;
 import io.gemini.aspectj.weaver.PointcutParameter;
-import io.gemini.aspectj.weaver.PointcutParameter.NamedPointcutParameter;
-import io.gemini.aspectj.weaver.PointcutParameter.ParamCategory;
+import io.gemini.aspectj.weaver.PointcutParameter.ParameterCategory;
 import io.gemini.core.config.ConfigView;
 import io.gemini.core.util.MethodUtils;
 import io.gemini.core.util.Pair;
@@ -55,8 +53,6 @@ import io.gemini.core.util.SignatureParser;
 import io.gemini.core.util.SignatureParser.MethodSignature;
 import io.gemini.core.util.SignatureParser.TypeSignature;
 import io.gemini.core.util.StringUtils;
-import net.bytebuddy.asm.Advice.OnMethodEnter;
-import net.bytebuddy.asm.Advice.OnMethodExit;
 import net.bytebuddy.description.annotation.AnnotationDescription;
 import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.method.ParameterDescription;
@@ -65,20 +61,23 @@ import net.bytebuddy.description.type.TypeDefinition;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.description.type.TypeDescription.Generic;
 import net.bytebuddy.dynamic.DynamicType;
+import net.bytebuddy.jar.asm.Type;
 import net.bytebuddy.pool.TypePool;
 
 /**
- * Describes the metadata of an advice method or class parsed from an aspect application.
+ * Describes the metadata of an advice method or class parsed from an aspect
+ * application.
  * <p>
  * Three sub-interfaces cover the three advice styles:
  * <ul>
- *   <li>{@link PojoAdviceSpec} – POJO before/after/around advice</li>
- *   <li>{@link AspectJAdviceSpec} – AspectJ annotation-based advice with pointcut parameter binding</li>
- *   <li>{@link ByteBuddyAdviceSpec} – raw ByteBuddy {@code @Advice} class</li>
+ * <li>{@link PojoAdviceSpec} – POJO before/after/around advice</li>
+ * <li>{@link AspectJAdviceSpec} – AspectJ annotation-based advice with pointcut
+ * parameter binding</li>
+ * <li>{@link ByteBuddyAdviceSpec} – raw ByteBuddy {@code @Advice} class</li>
  * </ul>
  * </p>
  *
- * @author   martin.liu
+ * @author martin.liu
  */
 public interface AdviceSpec extends AnnotationFinder {
 
@@ -103,12 +102,11 @@ public interface AdviceSpec extends AnnotationFinder {
      */
     String getAdviceClassName();
 
-    /** 
+    /**
      * {@inheritDoc}
      */
     @Override
     AnnotationDescription getAnnotation(Class<? extends Annotation> annotationClass);
-
 
     /**
      * Loads {@link AdviceSpec} per the given target {@link TypePool}.
@@ -118,32 +116,32 @@ public interface AdviceSpec extends AnnotationFinder {
         /**
          * Loads {@link AdviceSpec} per the given target {@link TypePool}.
          * 
-         * @param targetTypePool the target {@link TypePool}
+         * @param aspectTypePool the aspect {@link TypePool} per target class loader
          * @return the instance of {@link AdviceSpec}
          */
-        T load(TypePool targetTypePool);
+        T load(TypePool aspectTypePool);
 
     }
 
-
     /**
-     * Abstract base providing common advice spec properties: advice kind, declaring type,
-     * advice class name, advice method, and parameterized return/throw types.
+     * Abstract base providing common advice spec properties: advice kind, declaring
+     * type, advice class name, advice method, and parameterized return/throw types.
      */
     abstract class AbstractBase implements AdviceSpec {
 
         protected static final Logger LOGGER = LoggerFactory.getLogger(AdviceSpec.class);
 
         protected static final Pair<String, String> UNDEFIEND_NAME_PAIR = new Pair<String, String>(null, null);
-        protected static final Pair<TypeDescription, TypeDescription> UNDEFIEND_TYPE_PAIR = new Pair<TypeDescription, TypeDescription>(null, null);
-
+        protected static final Pair<TypeDescription, TypeDescription> UNDEFIEND_TYPE_PAIR = new Pair<TypeDescription, TypeDescription>(
+                null, null);
+        protected static final TypeDescription JOINPOINT = TypeDescription.ForLoadedType
+                .of(Joinpoint.MutableJoinpoint.class);
 
         private AdviceKind adviceKind;
 
         private TypeDescription declaringType;
 
         private String adviceClassName;
-
 
         public AbstractBase(AdviceKind adviceKind, TypeDescription declaringType, String adviceClassName) {
             this.adviceKind = adviceKind;
@@ -202,7 +200,6 @@ public interface AdviceSpec extends AnnotationFinder {
             this.adviceClassName = adviceClassName;
         }
 
-
         protected MethodSignature createMethodSignature(MethodDescription methodDescription) {
             String methodSignature = methodDescription.getGenericSignature();
             if (methodSignature == null)
@@ -211,79 +208,46 @@ public interface AdviceSpec extends AnnotationFinder {
             return SignatureParser.parseMethodSignature(methodSignature);
         }
 
-        protected Pair<String, String> resolveJoinpointParamTypeArguments(String declaringTypeName, 
-                MethodDescription methodDescription, MethodSignature methodSignature) {
-            List<? extends TypeSignature> parameters = methodSignature.getParameters();
+        protected MethodDescription loadAdviceMethod(TypePool aspectTypePool, TypeDescription declaringType,
+                MethodDescription adviceMethod) {
+            if (declaringType == null) {
+                // load type actually defining advice method
+                String declaringTypeName = adviceMethod.getDeclaringType().getTypeName();
+                declaringType = aspectTypePool.describe(declaringTypeName).resolve();
+            }
+
+            return declaringType.getDeclaredMethods()
+                    .filter(named(adviceMethod.getName()).and(hasDescriptor(adviceMethod.getDescriptor()))).getOnly();
+        }
+
+        protected Generic getMutableJoinpointType(MethodDescription adviceMethod) {
+            ParameterList<?> parameters = adviceMethod.getParameters();
             if (parameters.size() == 0)
                 return null;
 
-            TypeSignature joinpointType = parameters.get(0);
-            if (!Joinpoint.MutableJoinpoint.class.getName().equals(joinpointType.getTypeName())
-                    || TypeDefinition.Sort.PARAMETERIZED != joinpointType.getSort() ) {
+            Generic firstParameter = parameters.get(0).getType();
+            if (!JOINPOINT.isAssignableFrom(firstParameter.asErasure())
+                    || TypeDefinition.Sort.PARAMETERIZED != firstParameter.getSort())
                 return null;
-            }
 
-            List<? extends TypeSignature> typeArguments = joinpointType.getTypeArguments();
-
-            TypeSignature returnType = typeArguments.get(0);
-            if (TypeDefinition.Sort.NON_GENERIC != returnType.getSort() && TypeDefinition.Sort.PARAMETERIZED != returnType.getSort()) {
-                if (LOGGER.isWarnEnabled())
-                    LOGGER.warn("Ignored advice method with Generic or WildcardType ParameterizedReturning of MutableJoinpoint. \n"
-                            + "  DeclaringType: {} \n"
-                            + "  AdviceMethod: {} \n"
-                            + "    ParameterizedReturning: {} \n",
-                            declaringTypeName,
-                            toString(declaringTypeName, methodDescription, methodSignature),
-                            returnType.getTypeName()
-                    );
-
-                return null;
-            }
-
-            TypeSignature throwType = typeArguments.get(1);
-            if (TypeDefinition.Sort.NON_GENERIC != throwType.getSort() && TypeDefinition.Sort.PARAMETERIZED != throwType.getSort()) {
-                if (LOGGER.isWarnEnabled())
-                    LOGGER.warn("Ignored advice method with Generic or WildcardType ParameterizedThrowing of MutableJoinpoint. \n"
-                            + "  DeclaringType: {} \n"
-                            + "  AdviceMethod: {} \n"
-                            + "    ParameterizedThrowing: {} \n",
-                            declaringTypeName,
-                            toString(declaringTypeName, methodDescription, methodSignature),
-                            throwType.getTypeName()
-                    );
-
-                return null;
-            }
-
-            return new Pair<>(returnType.getTypeName(), throwType.getTypeName());
+            return firstParameter.getTypeArguments().size() > 0 ? firstParameter : null;
         }
 
-        protected MethodDescription loadAdviceMethod(TypePool targetTypePool, MethodDescription adviceMethod) {
-            TypeDescription declaringType = targetTypePool.describe(
-                    adviceMethod.getDeclaringType().getTypeName() ).resolve();
-
-            return declaringType.getDeclaredMethods().filter(
-                    named( adviceMethod.getName() )
-                    .and( hasDescriptor( adviceMethod.getDescriptor() ) )
-            )
-            .getOnly();
-        }
-
-        /** 
+        /**
          * {@inheritDoc}
          */
         @Override
         public AnnotationDescription getAnnotation(Class<? extends Annotation> annotationClass) {
-            return this.declaringType != null 
-                    ? this.declaringType.getDeclaredAnnotations().ofType(annotationClass)
+            return this.declaringType != null ? this.declaringType.getDeclaredAnnotations().ofType(annotationClass)
                     : null;
         }
 
-        protected String toString(String declaringTypeName, MethodDescription methodDescription, MethodSignature methodSignature) {
+        protected String toString(String declaringTypeName, MethodDescription methodDescription) {
             StringBuilder stringBuilder = new StringBuilder();
             int modifiers = methodDescription.getModifiers();
             stringBuilder.append(Modifier.toString(modifiers)).append(' ');
 
+            MethodSignature methodSignature = createMethodSignature(methodDescription);
             if (methodDescription.isMethod()) {
                 stringBuilder.append(methodSignature.getReturnType().getTypeName()).append(' ');
                 stringBuilder.append(declaringTypeName).append('.');
@@ -296,7 +260,7 @@ public interface AdviceSpec extends AnnotationFinder {
                 } else {
                     first = false;
                 }
-                stringBuilder.append(typeSignature.getTypeName());
+                stringBuilder.append(typeSignature.getGenericName());
             }
             stringBuilder.append(')');
 
@@ -304,9 +268,8 @@ public interface AdviceSpec extends AnnotationFinder {
         }
     }
 
-
-    /** 
-     * POJO-style advice spec for before/after/around advice implementations. 
+    /**
+     * POJO-style advice spec for before/after/around advice implementations.
      */
     interface PojoAdviceSpec extends AdviceSpec {
 
@@ -318,10 +281,9 @@ public interface AdviceSpec extends AnnotationFinder {
         @Override
         PojoAdviceKind getAdviceKind();
 
-
         /**
-         * Subtype of {@link PojoAdviceSpec} holds metadata used to load {@link PojoAdviceSpec.Loaded}
-         * instance per target {@link TypePool}.
+         * Subtype of {@link PojoAdviceSpec} holds metadata used to load
+         * {@link PojoAdviceSpec.Loaded} instance per target {@link TypePool}.
          */
         interface Unloaded extends PojoAdviceSpec, Loadable<PojoAdviceSpec.Loaded> {
 
@@ -332,26 +294,21 @@ public interface AdviceSpec extends AnnotationFinder {
 
                 private final MethodDescription adviceMethod;
 
-                private Pair<String, String> joinpointTypeArgumentNames = UNDEFIEND_NAME_PAIR;
-
 
                 /**
                  * Creates a POJO advice spec.
                  *
-                 * @param adviceKind                 the POJO advice kind
-                 * @param declaringType          the declaring type name
-                 * @param adviceClassName            the fully-qualified advice class name
-                 * @param adviceMethod               the advice method (before/after/invoke)
+                 * @param adviceKind    the POJO advice kind
+                 * @param declaringType the declaring type name
+                 * @param adviceMethod  the advice method (before/after/invoke)
                  */
-                public Default(PojoAdviceKind adviceKind, TypeDescription declaringType, 
-                        String adviceClassName, MethodDescription adviceMethod) {
-                    super(adviceKind, declaringType, adviceClassName);
-
+                public Default(PojoAdviceKind adviceKind, TypeDescription declaringType,
+                        MethodDescription adviceMethod) {
+                    super(adviceKind, declaringType, declaringType.getTypeName());
                     this.adviceMethod = adviceMethod;
                 }
 
-
-                /** 
+                /**
                  * {@inheritDoc}
                  */
                 @Override
@@ -363,29 +320,19 @@ public interface AdviceSpec extends AnnotationFinder {
                     return adviceMethod;
                 }
 
-                public Pair<String, String> getJoinpointTypeArgumentNames() {
-                    if (this.joinpointTypeArgumentNames != null &&
-                            this.joinpointTypeArgumentNames.equals(UNDEFIEND_NAME_PAIR))
-                        this.joinpointTypeArgumentNames = resolveJoinpointParamTypeArguments(
-                                getDeclaringTypeName(), getAdviceMethod(), createMethodSignature(adviceMethod));
-
-                    return this.joinpointTypeArgumentNames;
-                }
-
-                /** 
+                /**
                  * {@inheritDoc}
                  */
                 @Override
-                public PojoAdviceSpec.Loaded load(TypePool targetTypePool) {
-                    return new PojoAdviceSpec.Loaded.Default(targetTypePool, this);
+                public PojoAdviceSpec.Loaded load(TypePool aspectTypePool) {
+                    return new PojoAdviceSpec.Loaded.Default(aspectTypePool, this);
                 }
             }
         }
 
-
         /**
-         * Subtype of {@link PojoAdviceSpec} parses metadata, e.g., type arguments of joinpoint parameter
-         * which should be resolved per target {@link TypePool}.
+         * Subtype of {@link PojoAdviceSpec} parses metadata, e.g., type arguments of
+         * joinpoint parameter which should be resolved per target {@link TypePool}.
          */
         interface Loaded extends PojoAdviceSpec {
 
@@ -404,11 +351,11 @@ public interface AdviceSpec extends AnnotationFinder {
             MethodDescription getAdviceMethod();
 
             /**
-             * Returns type arguments of the joinpoint parameter.
+             * Returns the joinpoint parameter.
              * 
-             * @return type argument representing returning and throwing types
+             * @return the joinpoint parameter
              */
-            Pair<TypeDescription, TypeDescription> getJoinpointTypeArgumentTypes();
+            Generic getMutableJoinpointType();
 
 
             /**
@@ -416,21 +363,20 @@ public interface AdviceSpec extends AnnotationFinder {
              */
             class Default extends AdviceSpec.AbstractBase implements PojoAdviceSpec.Loaded {
 
-                private final TypePool targetTypePool;
+                private final TypePool aspectTypePool;
                 private final PojoAdviceSpec.Unloaded.Default adviceSpec;
 
                 private MethodDescription adviceMethod;
-                private Pair<TypeDescription, TypeDescription> joinpointTypeArgumentTypes = UNDEFIEND_TYPE_PAIR;
 
 
-                public Default(TypePool targetTypePool, PojoAdviceSpec.Unloaded.Default adviceSpec) {
+                public Default(TypePool aspectTypePool, PojoAdviceSpec.Unloaded.Default adviceSpec) {
                     super(adviceSpec.getAdviceKind(), null, adviceSpec.getAdviceClassName());
 
-                    this.targetTypePool = targetTypePool;
+                    this.aspectTypePool = aspectTypePool;
                     this.adviceSpec = adviceSpec;
                 }
 
-                /** 
+                /**
                  * {@inheritDoc}
                  */
                 @Override
@@ -438,70 +384,59 @@ public interface AdviceSpec extends AnnotationFinder {
                     return (PojoAdviceKind) super.getAdviceKind();
                 }
 
-                /** 
+                /**
                  * {@inheritDoc}
                  */
                 @Override
                 public TypeDescription getDeclaringType() {
                     if (super.getDeclaringType() == null)
-                        this.setDeclaringType(
-                                targetTypePool.describe(adviceSpec.getDeclaringTypeName()).resolve() );
+                        this.setDeclaringType(aspectTypePool.describe(adviceSpec.getDeclaringTypeName()).resolve());
                     return super.getDeclaringType();
                 }
 
-                /** 
+                /**
                  * {@inheritDoc}
                  */
                 @Override
                 public MethodDescription getAdviceMethod() {
-                    if (this.adviceMethod == null) 
-                        this.adviceMethod = loadAdviceMethod(targetTypePool, adviceSpec.getAdviceMethod());
+                    if (this.adviceMethod == null)
+                        this.adviceMethod = loadAdviceMethod(aspectTypePool, null, adviceSpec.getAdviceMethod());
 
                     return this.adviceMethod;
                 }
 
-                /** 
+                /**
                  * {@inheritDoc}
                  */
                 @Override
-                public Pair<TypeDescription, TypeDescription> getJoinpointTypeArgumentTypes() {
-                    if (this.joinpointTypeArgumentTypes != null 
-                            && joinpointTypeArgumentTypes.equals(UNDEFIEND_TYPE_PAIR)) {
-                        Pair<String, String> typeArgumentNames = adviceSpec.getJoinpointTypeArgumentNames();
-                        this.joinpointTypeArgumentTypes = typeArgumentNames == null 
-                                ? null
-                                : new Pair<>(
-                                        targetTypePool.describe(typeArgumentNames.getLeft()).resolve(),
-                                        targetTypePool.describe(typeArgumentNames.getRight()).resolve()
-                                );
-                    }
-                    return joinpointTypeArgumentTypes;
+                public Generic getMutableJoinpointType() {
+                    return getMutableJoinpointType(getAdviceMethod());
                 }
             }
         }
     }
-
 
     /**
      * AspectJ annotation-based advice spec.
      */
     interface AspectJAdviceSpec extends AdviceSpec {
 
-        /** 
-         * Returns the AspectJ advice kind (@Before, @After, @AfterReturning, @AfterThrowing, @Around). 
+        /**
+         * Returns the AspectJ advice kind
+         * (@Before, @After, @AfterReturning, @AfterThrowing, @Around).
          */
         @Override
         AspectJAdviceKind getAdviceKind();
 
-        /** 
-         * Returns the AspectJ advice annotation (e.g., {@code @Before}, {@code @Around}). 
+        /**
+         * Returns the AspectJ advice annotation (e.g., {@code @Before},
+         * {@code @Around}).
          */
         AnnotationDescription getAdviceAnnotation();
 
-
         /**
-         * Subtype of {@link AspectJAdviceSpec} holds metadata used to load {@link AspectJAdviceSpec.Loaded}
-         * instance per target {@link TypePool}.
+         * Subtype of {@link AspectJAdviceSpec} holds metadata used to load
+         * {@link AspectJAdviceSpec.Loaded} instance per target {@link TypePool}.
          */
         interface Unloaded extends AspectJAdviceSpec, Loadable<AspectJAdviceSpec.Loaded> {
 
@@ -510,23 +445,15 @@ public interface AdviceSpec extends AnnotationFinder {
              */
             class Default extends AdviceSpec.AbstractBase implements AspectJAdviceSpec.Unloaded {
 
-                private static final List<String> ACCESSIBLE_OBJECTS = Arrays.asList( 
-                        AccessibleObject.class.getName(),
-                        Executable.class.getName(),
-                        Constructor.class.getName(),
-                        Method.class.getName()
-                );
-
+                private static final List<String> ACCESSIBLE_OBJECTS = Arrays.asList(AccessibleObject.class.getName(),
+                        Executable.class.getName(), Constructor.class.getName(), Method.class.getName());
 
                 private final AnnotationDescription adviceAnnotation;
 
                 private final MethodDescription adviceMethod;
-                private MethodSignature adviceMethodSignature;
 
-                private Pair<String, String> joinpointTypeArgumentNames = UNDEFIEND_NAME_PAIR;
-
-                private Map<String, String> parameterMap;
-                private Map<String, ParamCategory> resolvedParameters;
+                private List<String> aspectJArgNames;
+                private List<ParameterCategory> parameterCategories;
 
 
                 public Default(TypeDescription declaringType, MethodDescription adviceMethod,
@@ -536,25 +463,26 @@ public interface AdviceSpec extends AnnotationFinder {
                     this.adviceMethod = adviceMethod;
                     this.adviceAnnotation = adviceAnnotation;
 
-                    String adviceKindValue = adviceAnnotation.getAnnotationType().getSimpleName().toUpperCase(Locale.ENGLISH);
-                    setAdviceKind( AspectJAdviceKind.parse(adviceKindValue) );
+                    String adviceKindValue = adviceAnnotation.getAnnotationType().getSimpleName()
+                            .toUpperCase(Locale.ENGLISH);
+                    setAdviceKind(AspectJAdviceKind.parse(adviceKindValue));
 
-                    setAdviceClassName( generateAdviceClassName(adviceKindValue, adviceMethod) );
-
+                    setAdviceClassName(generateAdviceClassName(adviceKindValue, adviceMethod));
 
                     String argNamesStr = adviceAnnotation.getValue("argNames").resolve(String.class).trim();
                     String returningParameterName = getAdviceKind().isAfterReturning()
-                            ? adviceAnnotation.getValue("returning").resolve(String.class).trim() : null;
+                            ? adviceAnnotation.getValue("returning").resolve(String.class).trim()
+                            : null;
                     String throwingParameterName = getAdviceKind().isAfterThrowing()
-                            ? adviceAnnotation.getValue("throwing").resolve(String.class).trim() : null;
+                            ? adviceAnnotation.getValue("throwing").resolve(String.class).trim()
+                            : null;
 
-                    initialize(declaringType, adviceMethod, getAdviceKind(), getAdviceMethodSignature(), 
-                            argNamesStr, returningParameterName, throwingParameterName);
+                    initialize(declaringType, adviceMethod, getAdviceKind(), argNamesStr,
+                            returningParameterName, throwingParameterName);
                 }
 
-
-                public Default(TypeDescription declaringType, MethodDescription adviceMethod,
-                        ConfigView configView, String configKeyPrefix) throws IllegalSpecException {
+                public Default(TypeDescription declaringType, MethodDescription adviceMethod, ConfigView configView,
+                        String configKeyPrefix) throws IllegalSpecException {
                     super(null, declaringType, null);
 
                     this.adviceMethod = adviceMethod;
@@ -563,69 +491,55 @@ public interface AdviceSpec extends AnnotationFinder {
                     String adviceKindKey = configKeyPrefix + "adviceCategory";
                     String adviceKindValue = configView.getAsString(adviceKindKey, "").toUpperCase(Locale.ENGLISH);
                     try {
-                        setAdviceKind( AspectJAdviceKind.parse(adviceKindValue) );
+                        setAdviceKind(AspectJAdviceKind.parse(adviceKindValue));
                     } catch (Exception e) {
                         if (LOGGER.isWarnEnabled())
-                            LOGGER.warn("Ignored AspectJ advice method with illegal 'adviceKind' configuration property. \n"
-                                    + "  ConfigKeyPrefix: {} \n"
-                                    + "  DeclaringType: {} \n"
-                                    + "  AdviceMethod: {} \n"
-                                    + "    {}: {} \n"
-                                    + "  Error reason: {} \n", 
-                                    configKeyPrefix,
-                                    declaringType, 
-                                    toString(getDeclaringTypeName(), adviceMethod, getAdviceMethodSignature()),
-                                    adviceKindKey, adviceKindValue,
-                                    e.getMessage()
-                            );
+                            LOGGER.warn(
+                                    "Ignored AspectJ advice method with illegal 'adviceKind' configuration property. \n"
+                                            + "  ConfigKeyPrefix: {} \n" + "  DeclaringType: {} \n"
+                                            + "  AdviceMethod: {} \n" + "    {}: {} \n" + "  Error reason: {} \n",
+                                    configKeyPrefix, declaringType,
+                                    toString(getDeclaringTypeName(), adviceMethod),
+                                    adviceKindKey, adviceKindValue, e.getMessage());
 
                         throw new IllegalSpecException();
                     }
 
-                    setAdviceClassName( generateAdviceClassName(adviceKindValue, adviceMethod) );
-
+                    setAdviceClassName(generateAdviceClassName(adviceKindValue, adviceMethod));
 
                     String argNamesStr = configView.getAsString(configKeyPrefix + "argNames", "");
                     String returningParameterName = getReturingParameterName(configView, configKeyPrefix);
                     String throwingParameterName = getThrowingParameterName(configView, configKeyPrefix);
 
-                    initialize(declaringType, adviceMethod, getAdviceKind(), getAdviceMethodSignature(), 
-                            argNamesStr, returningParameterName, throwingParameterName);
+                    initialize(declaringType, adviceMethod, getAdviceKind(), argNamesStr,
+                            returningParameterName, throwingParameterName);
                 }
 
                 private String getReturingParameterName(ConfigView configView, String configKeyPrefix) {
                     String returningKey = configKeyPrefix + "returning";
                     String returningParameterName = configView.getAsString(returningKey, "");
-                    if (getAdviceKind().isAfterReturning()) 
+                    if (getAdviceKind().isAfterReturning())
                         return returningParameterName;
 
                     if (LOGGER.isInfoEnabled() && StringUtils.hasText(returningParameterName))
-                        LOGGER.info("Ignored meaningless 'returning' property of non AspectJ @AfterReturning advice method. \n"
-                                + "  ConfigKeyPrefix: {} \n"
-                                + "  DeclaringType: {} \n"
-                                + "    {}: {} \n",
-                                configKeyPrefix,
-                                getDeclaringTypeName(), 
-                                returningKey, returningParameterName
-                        );
+                        LOGGER.info(
+                                "Ignored meaningless 'returning' property of non AspectJ @AfterReturning advice method. \n"
+                                        + "  ConfigKeyPrefix: {} \n" + "  DeclaringType: {} \n" + "    {}: {} \n",
+                                configKeyPrefix, getDeclaringTypeName(), returningKey, returningParameterName);
                     return null;
                 }
 
                 private String getThrowingParameterName(ConfigView configView, String configKeyPrefix) {
                     String throwingKey = configKeyPrefix + "throwing";
                     String throwingParameterName = configView.getAsString(throwingKey, "");
-                    if (getAdviceKind().isAfterThrowing()) 
+                    if (getAdviceKind().isAfterThrowing())
                         return throwingParameterName;
 
                     if (LOGGER.isInfoEnabled() && StringUtils.hasText(throwingParameterName))
-                        LOGGER.info("Ignored meaningless 'throwing' property of non AspectJ @AfterThrowing advice method. \n"
-                                + "  ConfigKeyPrefix: {} \n"
-                                + "  DeclaringType: {} \n"
-                                + "    {}: {} \n",
-                                configKeyPrefix,
-                                getDeclaringTypeName(), 
-                                throwingKey, throwingParameterName
-                        );
+                        LOGGER.info(
+                                "Ignored meaningless 'throwing' property of non AspectJ @AfterThrowing advice method. \n"
+                                        + "  ConfigKeyPrefix: {} \n" + "  DeclaringType: {} \n" + "    {}: {} \n",
+                                configKeyPrefix, getDeclaringTypeName(), throwingKey, throwingParameterName);
                     return null;
                 }
 
@@ -634,184 +548,157 @@ public interface AdviceSpec extends AnnotationFinder {
                     return getDeclaringTypeName() + "_$$" + adviceMethod.getName() + "_" + adviceKind + "$$";
                 }
 
-                private void initialize(TypeDescription declaringType, 
-                        MethodDescription adviceMethod, AspectJAdviceKind adviceKind, 
-                        MethodSignature adviceMethodSignature, String argNamesStr, 
-                        String returningParameterName, String throwingParameterName) {
-                    // 1.resolve parameter name/type pair
-                    List<String> parameterNames = resolveParameterNames(declaringType, adviceMethod, argNamesStr);
-                    this.parameterMap = createParameterTypeMap(parameterNames, adviceMethodSignature.getParameterTypes());
+                private void initialize(TypeDescription declaringType, MethodDescription adviceMethod, AspectJAdviceKind adviceKind, 
+                        String argNamesStr, String returningParameterName, String throwingParameterName) {
+                    ParameterList<?> parameters = adviceMethod.getParameters();
+                    if (parameters.size() == 0) {
+                        this.aspectJArgNames = new ArrayList<>();
+                        this.parameterCategories = new ArrayList<>();
 
+                        return;
+                    }
 
-                    // 2.bind AspectJ method parameters
-                    this.resolvedParameters = new LinkedHashMap<>(3);
+                    // 1.resolve joinpoint parameter
+                    List<ParameterCategory> parameterCategories = new ArrayList<>(
+                            Collections.nCopies(parameters.size(), null));
 
-                    resolveJoinpointParamBinding(resolvedParameters);
+                    resolveJoinpointParamBinding(adviceMethod, parameterCategories);
 
+                    // 2.resolve the AspectJ 'argNames' attribute
+                    List<String> aspectJArgNames = resolveAspectJArgNames(declaringType, adviceMethod, parameters,
+                            argNamesStr);
+
+                    // 3.resolve the AspectJ 'returning' and 'throwing' attribute
                     if (adviceKind.isAfterReturning())
-                        resolveAdviceReturningParamBinding(resolvedParameters, returningParameterName);
+                        resolveAdviceReturningParamBinding(parameterCategories, aspectJArgNames,
+                                returningParameterName);
 
                     if (adviceKind.isAfterThrowing())
-                        resolveAdviceThrowingParamBinding(resolvedParameters, throwingParameterName);
+                        resolveAdviceThrowingParamBinding(parameterCategories, aspectJArgNames, throwingParameterName);
+
+                    this.aspectJArgNames = aspectJArgNames;
+                    this.parameterCategories = parameterCategories;
                 }
 
-                private List<String> resolveParameterNames(TypeDescription declaringType, 
-                        MethodDescription adviceMethod, String argNamesStr) {
-                    ParameterList<ParameterDescription.InDefinedShape> parameters = adviceMethod.asDefined().getParameters();
-                    if (parameters.size() == 0)
-                        return new ArrayList<>();
+                private boolean resolveJoinpointParamBinding(MethodDescription adviceMethod, List<ParameterCategory> parameterCategories) {
+                    // bind first parameter
+                    String parameterTypeName = Type.getMethodType(adviceMethod.getDescriptor())
+                            .getArgumentTypes()[0]
+                                    .getClassName();
 
-                    ParameterDescription.InDefinedShape index0Param = parameters.get(0);
-                    List<String> parameterNames = new ArrayList<>(parameters.size());
+                    ParameterCategory parameterCategory = null;
+                    if (Joinpoint.class.getName().equals(parameterTypeName))
+                        parameterCategory = ParameterCategory.JOINPOINT_PARAM;
+                    else if (Joinpoint.MutableJoinpoint.class.getName().equals(parameterTypeName))
+                        parameterCategory = ParameterCategory.MUTABLE_JOINPOINT_PARAM;
+                    else if (ACCESSIBLE_OBJECTS.contains(parameterTypeName))
+                        parameterCategory = ParameterCategory.STATIC_PART_PARAM;
 
-                    // 1.fetch 'argNames' value in annotation
+                    if (parameterCategory != null) {
+                        parameterCategories.add(0, parameterCategory);
+                        return true;
+                    } else
+                        return false;
+                }
+
+                private List<String> resolveAspectJArgNames(TypeDescription declaringType,
+                        MethodDescription adviceMethod, ParameterList<?> parameters, String argNamesStr) {
+                    // parse 'argNames' value in annotation
                     StringTokenizer st = new StringTokenizer(argNamesStr, ",");
-                    List<String> argNames = new ArrayList<>(st.countTokens());
+                    int argCount = st.countTokens();
+                    if (argCount == 0) {
+                        return parameters.stream().map(p -> p.getName()).collect(Collectors.toList());
+                    }
+
+                    // check argument count
+                    if (argCount != parameters.size() && argCount != parameters.size() - 1) {
+                        if (LOGGER.isWarnEnabled())
+                            LOGGER.warn(
+                                    "Ignored AspectJ advice method with parameter count is inconsistent with 'argNames' annotation attribute. \n"
+                                            + "  DeclaringType: {} \n" + "  AdviceMethod: {} \n"
+                                            + "    ArgNames: {} \n",
+                                    declaringType,
+                                    toString(getDeclaringTypeName(), adviceMethod),
+                                    argNamesStr);
+
+                        throw new IllegalSpecException();
+                    }
+
+                    List<String> argNames = new ArrayList<>(argCount);
                     while (st.hasMoreTokens())
                         argNames.add(st.nextToken().trim());
 
-                    if (argNames.size() > 0) {
-                        if (argNames.size() != parameters.size() && argNames.size() != parameters.size() - 1) {
-                            if (LOGGER.isWarnEnabled())
-                                LOGGER.warn("Ignored AspectJ advice method with parameters is inconsistent with 'argNames' annotation attribute. \n"
-                                        + "  DeclaringType: {} \n"
-                                        + "  AdviceMethod: {} \n"
-                                        + "    ArgNames: {} \n", 
-                                        declaringType,
-                                        toString(getDeclaringTypeName(), adviceMethod, getAdviceMethodSignature()),
-                                        argNamesStr
-                                );
+                    if (argCount == parameters.size() - 1)
+                        argNames.add(0, parameters.get(0).getName());
 
-                            throw new IllegalSpecException();
-                        }
-
-                        // first parameter should be joinpoint
-                        if (argNames.size() == parameters.size() - 1) {
-                            parameterNames.add(index0Param.getName());
-                        }
-                        parameterNames.addAll(argNames);
-
-                        return parameterNames;
-                    }
-
-                    // 2.parse parameter names in MethodParameters section
-                    // validate parameter name for index0 parameter
-//                    if (index0Param.getName().equals(index0Param.getActualName()) == false) {
-//                        if (LOGGER.isWarnEnabled())
-//                            LOGGER.warn("Ignored AspectJ advice method without parameter reflection support and 'argNames' annotation attribute. \n"
-//                                    + "  DeclaringType: {} \n"
-//                                    + "  AdviceMethod: {} \n"
-//                                    + "    BinaryMethodName: {} \n"
-//                                    + "    ActualMethodName: {} \n",
-//                                    declaringType.getTypeName(),
-//                                    MethodUtils.getMethodSignature(adviceMethod), 
-//                                    index0Param.getName(), 
-//                                    index0Param.getActualName()
-//                            );
-    //
-//                        throw new IllegalSpecException();
-//                    }
-
-                    return parameters.stream()
-                            .map( p -> p.getName() )
-                            .collect( Collectors.toList() );
+                    return argNames;
                 }
 
-
-                private Map<String, String> createParameterTypeMap(List<String> parameterNames, List<String> parameterTypes) {
-                    Map<String, String> parameterTypeMap = new LinkedHashMap<>(parameterNames.size());
-
-                    // access by parameter index other than parameter name which might NOT contain in bytecode file
-                    for (int index = 0; index < parameterNames.size(); index++) {
-                        parameterTypeMap.put(parameterNames.get(index), parameterTypes.get(index));
-                    }
-
-                    return parameterTypeMap;
-                }
-
-                private void resolveJoinpointParamBinding(Map<String, ParamCategory> resolvedParameters) {
-                    if (parameterMap.size() == 0) 
-                        return;
-
-                    // bind first parameter
-                    ParameterDescription.InDefinedShape parameterDescription = getAdviceMethod().asDefined().getParameters().get(0);
-                    String parameterName = parameterDescription.getName();
-                    String parameterTypeName = parameterMap.get(parameterName);
-
-                    if (Joinpoint.class.getName().equals(parameterTypeName))
-                        resolvedParameters.put(parameterName, ParamCategory.JOINPOINT_PARAM);
-                    else if (Joinpoint.MutableJoinpoint.class.getName().equals(parameterTypeName))
-                        resolvedParameters.put(parameterName, ParamCategory.MUTABLE_JOINPOINT_PARAM);
-                    else if (ACCESSIBLE_OBJECTS.contains(parameterTypeName))
-                        resolvedParameters.put(parameterName, ParamCategory.MUTABLE_JOINPOINT_PARAM);
-                }
-
-                private void resolveAdviceReturningParamBinding(Map<String, ParamCategory> resolvedParameters, String returningParameterName) {
+                private void resolveAdviceReturningParamBinding(List<ParameterCategory> parameterCategories,
+                        List<String> aspectJArgNames, String returningParameterName) {
                     // resolve returning parameters
                     if (!StringUtils.hasText(returningParameterName)) {
                         if (LOGGER.isWarnEnabled())
-                            LOGGER.warn("Ignored AspectJ @AfterReturning advice method without 'returning' annotation attribute. \n"
-                                    + "  DeclaringType: {} \n"
-                                    + "  AdviceMethod: {} \n"
-                                    + "    'returning': {} \n",
+                            LOGGER.warn(
+                                    "Ignored AspectJ @AfterReturning advice method without 'returning' annotation attribute. \n"
+                                            + "  DeclaringType: {} \n" + "  AdviceMethod: {} \n"
+                                            + "    'returning': {} \n",
                                     getDeclaringTypeName(),
-                                    toString(getDeclaringTypeName(), adviceMethod, getAdviceMethodSignature()),
-                                    returningParameterName
-                            );
+                                    toString(getDeclaringTypeName(), adviceMethod),
+                                    returningParameterName);
 
                         throw new IllegalSpecException();
                     }
 
-                    if (!parameterMap.containsKey(returningParameterName)) { 
+                    int pos = aspectJArgNames.indexOf(returningParameterName);
+                    if (pos == -1) {
                         if (LOGGER.isWarnEnabled())
-                            LOGGER.warn("Ignored AspectJ @AfterReturning advice method with 'returning' annotation attribute referring to nonexistent parameter. \n"
-                                    + "  DeclaringType: {} \n"
-                                    + "  AdviceMethod: {} \n"
-                                    + "    'returning': {} \n",
+                            LOGGER.warn(
+                                    "Ignored AspectJ @AfterReturning advice method with 'returning' annotation attribute referring to nonexistent parameter. \n"
+                                            + "  DeclaringType: {} \n" + "  AdviceMethod: {} \n"
+                                            + "    'returning': {} \n",
                                     getDeclaringTypeName(),
-                                    toString(getDeclaringTypeName(), adviceMethod, getAdviceMethodSignature()),
-                                    returningParameterName
-                            );
+                                    toString(getDeclaringTypeName(), adviceMethod),
+                                    returningParameterName);
 
                         throw new IllegalSpecException();
                     }
 
-                    resolvedParameters.put(returningParameterName, ParamCategory.RETURNING_ANNOTATION);
+                    parameterCategories.add(pos, ParameterCategory.RETURNING_ANNOTATION);
                 }
 
-                private void resolveAdviceThrowingParamBinding(Map<String, ParamCategory> resolvedParameters, String throwingParameterName) {
+                private void resolveAdviceThrowingParamBinding(List<ParameterCategory> parameterCategories,
+                        List<String> aspectJArgNames, String throwingParameterName) {
                     // resolve throwing parameters
                     if (!StringUtils.hasText(throwingParameterName)) {
                         if (LOGGER.isWarnEnabled())
-                            LOGGER.warn("Ignored AspectJ @AfterThrowing advice method without 'throwing' annotation attribute. \n"
-                                    + "  DeclaringType: {} \n"
-                                    + "  AdviceMethod: {} \n"
-                                    + "    'throwing': {} \n",
+                            LOGGER.warn(
+                                    "Ignored AspectJ @AfterThrowing advice method without 'throwing' annotation attribute. \n"
+                                            + "  DeclaringType: {} \n" + "  AdviceMethod: {} \n"
+                                            + "    'throwing': {} \n",
                                     getDeclaringTypeName(),
-                                    toString(getDeclaringTypeName(), adviceMethod, getAdviceMethodSignature()),
-                                    throwingParameterName
-                            );
+                                    toString(getDeclaringTypeName(), adviceMethod),
+                                    throwingParameterName);
 
                         throw new IllegalSpecException();
                     }
 
-                    if (!parameterMap.containsKey(throwingParameterName)) {
+                    int pos = aspectJArgNames.indexOf(throwingParameterName);
+                    if (pos == -1) {
                         if (LOGGER.isWarnEnabled())
-                            LOGGER.warn("Ignored AspectJ @AfterThrowing advice method with 'throwing' annotation attribute referring to nonexistent parameter. \n"
-                                    + "  DeclaringType: {} \n"
-                                    + "  AdviceMethod: {} \n"
-                                    + "    'throwing': {} \n",
+                            LOGGER.warn(
+                                    "Ignored AspectJ @AfterThrowing advice method with 'throwing' annotation attribute referring to nonexistent parameter. \n"
+                                            + "  DeclaringType: {} \n" + "  AdviceMethod: {} \n"
+                                            + "    'throwing': {} \n",
                                     getDeclaringTypeName(),
-                                    toString(getDeclaringTypeName(), adviceMethod, getAdviceMethodSignature()),
-                                    throwingParameterName
-                            );
+                                    toString(getDeclaringTypeName(), adviceMethod),
+                                    throwingParameterName);
 
                         throw new IllegalSpecException();
                     }
 
-                    resolvedParameters.put(throwingParameterName, ParamCategory.THROWING_ANNOTATION);
+                    parameterCategories.add(pos, ParameterCategory.THROWING_ANNOTATION);
                 }
-
 
                 /**
                  * {@inheritDoc}
@@ -821,12 +708,13 @@ public interface AdviceSpec extends AnnotationFinder {
                     return (AspectJAdviceKind) super.getAdviceKind();
                 }
 
-                /** 
+                /**
                  * {@inheritDoc}
                  */
                 @Override
                 public AnnotationDescription getAnnotation(Class<? extends Annotation> annotationClass) {
-                    AnnotationDescription annotationDescription = this.adviceMethod.getDeclaredAnnotations().ofType(annotationClass);
+                    AnnotationDescription annotationDescription = this.adviceMethod.getDeclaredAnnotations()
+                            .ofType(annotationClass);
                     return annotationDescription != null ? annotationDescription : super.getAnnotation(annotationClass);
                 }
 
@@ -842,51 +730,28 @@ public interface AdviceSpec extends AnnotationFinder {
                     return adviceMethod;
                 }
 
-                private MethodSignature getAdviceMethodSignature() {
-                    if (this.adviceMethodSignature == null)
-                        this.adviceMethodSignature = createMethodSignature(adviceMethod);
-
-                    return this.adviceMethodSignature;
+                public List<String> getAspectJArgNames() {
+                    return aspectJArgNames;
                 }
 
-                public Pair<String, String> getJoinpointTypeArgumentNames() {
-                    if (this.joinpointTypeArgumentNames != null 
-                            && this.joinpointTypeArgumentNames.equals(UNDEFIEND_NAME_PAIR))
-                        this.joinpointTypeArgumentNames = resolveJoinpointParamTypeArguments(
-                                getDeclaringTypeName(), getAdviceMethod(), getAdviceMethodSignature());
-
-                    return this.joinpointTypeArgumentNames;
+                public List<ParameterCategory> getParameterCategories() {
+                    return parameterCategories;
                 }
 
-                public Map<String, String> getParameterMap() {
-                    return parameterMap;
-                }
-
-                public Map<String, ParamCategory> getResolvedParameters() {
-                    return resolvedParameters;
-                }
-
-                public Collection<String> getPointcutParameters() {
-                    List<String> parameters = new ArrayList<>(parameterMap.keySet());
-                    parameters.removeAll(resolvedParameters.keySet());
-                    return parameters;
-                }
-
-                /** 
+                /**
                  * {@inheritDoc}
                  */
                 @Override
-                public AspectJAdviceSpec.Loaded load(TypePool targetTypePool) {
-                    return new AspectJAdviceSpec.Loaded.Default(targetTypePool, this);
+                public AspectJAdviceSpec.Loaded load(TypePool aspectTypePool) {
+                    return new AspectJAdviceSpec.Loaded.Default(aspectTypePool, this);
                 }
             }
         }
 
-
         /**
-         * Subtype of {@link AspectJAdviceSpec} parses the pointcut parameter bindings, 
-         * returning/throwing parameter types, and generates the unloaded advice class via
-         * {@link AspectJAdviceGenerator}.
+         * Subtype of {@link AspectJAdviceSpec} parses the pointcut parameter bindings,
+         * returning/throwing parameter types, and generates the unloaded advice class
+         * via {@link AspectJAdviceGenerator}.
          */
         interface Loaded extends AspectJAdviceSpec, ExprPointcut.PointcutParameterMatcher {
 
@@ -905,70 +770,61 @@ public interface AdviceSpec extends AnnotationFinder {
             MethodDescription getAdviceMethod();
 
             /**
-             * Returns type arguments of the joinpoint parameter.
+             * Returns type joinpoint parameter.
              * 
-             * @return type argument representing returning and throwing types
+             * @return type joinpoint parameter
              */
-            Pair<TypeDescription, TypeDescription> getJoinpointTypeArgumentTypes();
+            Generic getMutableJoinpointType();
 
             /**
-             * Returns the map of pointcut parameter names to their type names,
-             * used for parameter binding in the generated advice class.
+             * Returns the map of pointcut parameter names to their type names, used for
+             * parameter binding in the generated advice class.
              *
              * @return map of parameter name to generic type
              */
             Map<String, String> getPointcutParameters();
 
             /**
-             * Returns the resolved named pointcut parameters with their binding categories
-             * (e.g., args, this, target, returning, throwing).
+             * Returns the resolved advice method parameters with their categories (e.g.,
+             * args, this, target, returning, throwing).
              *
-             * @return map of parameter name to {@link NamedPointcutParameter}
+             * @return list of {@link ResolvedParameter}
              */
-            Map<String, NamedPointcutParameter> getNamedPointcutParameters();
-
-            /**
-             * Returns {@code true} if the target method returns {@code void},
-             * which affects how the returning parameter is handled in the generated advice.
-             *
-             * @return {@code true} if the target method is void-returning
-             */
-            boolean isVoidReturning();
+            List<ResolvedParameter> getResolvedParameters();
 
             /**
              * Returns the dynamically generated, unloaded {@link Advice} class that wraps
-             * the AspectJ advice method for use with the Gemini AOP framework dispatch mechanism.
+             * the AspectJ advice method for use with the Gemini AOP framework dispatch
+             * mechanism.
              *
              * @return the unloaded advice class
              */
             DynamicType.Unloaded<? extends Advice> getUnloadedAdviceClass();
-
 
             /**
              * The default implementation of {@link AspectJAdviceSpec.Loaded}.
              */
             class Default extends AdviceSpec.AbstractBase implements AspectJAdviceSpec.Loaded {
 
-                private final TypePool targetTypePool;
+                private final TypePool aspectTypePool;
                 private final AspectJAdviceSpec.Unloaded.Default adviceSpec;
 
                 private MethodDescription adviceMethod;
-                private Pair<TypeDescription, TypeDescription> joinpointTypeArgumentTypes = UNDEFIEND_TYPE_PAIR;
 
-                private Map<String, NamedPointcutParameter> namedPointcutParameters;
-                private boolean voidReturning = false;
+                private Map<String, String> pointcutParameters;
+                private List<ResolvedParameter> resolvedParameters;
+
                 private DynamicType.Unloaded<? extends Advice> unloadedAdviceClass;
 
 
-                public Default(TypePool targetTypePool, AspectJAdviceSpec.Unloaded.Default adviceSpec) throws IllegalSpecException {
+                public Default(TypePool aspectTypePool, AspectJAdviceSpec.Unloaded.Default adviceSpec)
+                        throws IllegalSpecException {
                     super(adviceSpec.getAdviceKind(), null, adviceSpec.getAdviceClassName());
 
-                    this.targetTypePool = targetTypePool;
+                    this.aspectTypePool = aspectTypePool;
                     this.adviceSpec = adviceSpec;
-
-                    this.namedPointcutParameters = new LinkedHashMap<>();
+                    this.resolvedParameters = new ArrayList<>();
                 }
-
 
                 /**
                  * {@inheritDoc}
@@ -978,27 +834,27 @@ public interface AdviceSpec extends AnnotationFinder {
                     return (AspectJAdviceKind) super.getAdviceKind();
                 }
 
-                /** 
+                /**
                  * {@inheritDoc}
                  */
                 @Override
                 public TypeDescription getDeclaringType() {
                     if (super.getDeclaringType() == null)
-                        this.setDeclaringType(
-                                targetTypePool.describe(adviceSpec.getDeclaringTypeName()).resolve() );
+                        this.setDeclaringType(aspectTypePool.describe(adviceSpec.getDeclaringTypeName()).resolve());
                     return super.getDeclaringType();
                 }
 
-                /** 
+                /**
                  * {@inheritDoc}
                  */
                 @Override
                 public AnnotationDescription getAnnotation(Class<? extends Annotation> annotationClass) {
-                    AnnotationDescription annotationDescription = this.adviceMethod.getDeclaredAnnotations().ofType(annotationClass);
+                    AnnotationDescription annotationDescription = this.adviceMethod.getDeclaredAnnotations()
+                            .ofType(annotationClass);
                     return annotationDescription != null ? annotationDescription : super.getAnnotation(annotationClass);
                 }
 
-                /** 
+                /**
                  * {@inheritDoc}
                  */
                 @Override
@@ -1006,48 +862,44 @@ public interface AdviceSpec extends AnnotationFinder {
                     return adviceSpec.getAdviceAnnotation();
                 }
 
-                /** 
+                /**
                  * {@inheritDoc}
                  */
                 @Override
                 public MethodDescription getAdviceMethod() {
                     if (this.adviceMethod == null)
-                        this.adviceMethod = loadAdviceMethod(targetTypePool, adviceSpec.getAdviceMethod());
+                        this.adviceMethod = loadAdviceMethod(aspectTypePool, getDeclaringType(),
+                                adviceSpec.getAdviceMethod());
 
                     return this.adviceMethod;
                 }
 
-                /** 
+
+                /**
                  * {@inheritDoc}
                  */
                 @Override
-                public Pair<TypeDescription, TypeDescription> getJoinpointTypeArgumentTypes() {
-                    if (this.joinpointTypeArgumentTypes != null 
-                            && joinpointTypeArgumentTypes.equals(UNDEFIEND_TYPE_PAIR)) {
-                        Pair<String, String> typeArgumentNames = adviceSpec.getJoinpointTypeArgumentNames();
-                        joinpointTypeArgumentTypes = typeArgumentNames == null 
-                                ? null
-                                : new Pair<>(
-                                        targetTypePool.describe(typeArgumentNames.getLeft()).resolve(),
-                                        targetTypePool.describe(typeArgumentNames.getRight()).resolve()
-                                );
-                    }
-                    return joinpointTypeArgumentTypes;
+                public Generic getMutableJoinpointType() {
+                    return getMutableJoinpointType(getAdviceMethod());
                 }
 
-
-                /** 
+                /**
                  * {@inheritDoc}
                  */
                 @Override
                 public Map<String, String> getPointcutParameters() {
-                    Collection<String> pointcutParameterNames = adviceSpec.getPointcutParameters();
+                    if (this.pointcutParameters != null)
+                        return this.pointcutParameters;
 
-                    Map<String, String> parameterMap = adviceSpec.getParameterMap();
-                    Map<String, String> pointcutParameters = new LinkedHashMap<>(pointcutParameterNames.size());
-                    for (String parameterName : pointcutParameterNames)
-                        pointcutParameters.put(parameterName, parameterMap.get(parameterName));
-                    return pointcutParameters;
+                    List<String> aspectJArgNames = adviceSpec.getAspectJArgNames();
+                    Map<String, String> pointcutParameters = new LinkedHashMap<>(aspectJArgNames.size());
+                    int index = 0;
+                    for (ParameterDescription parameter : getAdviceMethod().getParameters()) {
+                        pointcutParameters.put(aspectJArgNames.get(index++),
+                                parameter.getType().asErasure().getTypeName());
+                    }
+
+                    return this.pointcutParameters = pointcutParameters;
                 }
 
                 /**
@@ -1055,97 +907,79 @@ public interface AdviceSpec extends AnnotationFinder {
                  */
                 @Override
                 public boolean match(MethodDescription targetMethod, List<PointcutParameter> pointcutParameters) {
-                    // 1.match parameter count
-                    Collection<String> unresoledPointcutParameters = adviceSpec.getPointcutParameters();
-                    if (pointcutParameters == null || pointcutParameters.size() != unresoledPointcutParameters.size()) {
-                        if (LOGGER.isWarnEnabled())
-                            LOGGER.warn("Ignored advice method with advice parameter count is different to target method's resolved parameters. \n" 
-                                    + "  DeclaringType: {} \n"
-                                    + "  AdviceMethod: {} \n"
-                                    + "    AdviceParameters: {} \n"
-                                    + "  TargetMethod: {} \n"
-                                    + "    ParameterIndex: {} \n",
-                                    adviceSpec.getDeclaringTypeName(),
-                                    toString(adviceSpec.getDeclaringTypeName(), getAdviceMethod(), adviceSpec.getAdviceMethodSignature()), 
-                                    unresoledPointcutParameters,
-                                    MethodUtils.getMethodSignature(targetMethod),
-                                    pointcutParameters == null ? null : pointcutParameters.stream()
-                                            .map( p -> p.getArgsIndex() + ", " )
-                                            .collect( Collectors.toList() )
-                            );
+                    // collect resolved parameters of advice method
+                    ParameterList<?> adviceMethodParameters = getAdviceMethod().getParameters();
+                    List<ResolvedParameter> resolvedParameters = new ArrayList<>(adviceMethodParameters.size());
+                    ParameterList<?> targetMethodParameters = targetMethod.getParameters();
 
-                        return false;
-                    }
+                    int parameterCategoryIndex = 0, pointcutParameterIndex = 0;
+                    for (ParameterDescription parameter : adviceMethodParameters) {
+                        Generic parameterType = parameter.getType();
+                        ParameterCategory parameterCategory = adviceSpec.getParameterCategories()
+                                .get(parameterCategoryIndex++);
 
+                        if (parameterCategory != null) {
+                            Generic matchedType = parameterType;
 
-                    // 2.collect resolved pointcut parameter
-                    Map<String, NamedPointcutParameter> namedPointcutParameters = new LinkedHashMap<>(adviceSpec.getParameterMap().size());
-                    for (Entry<String, ParamCategory> entry : adviceSpec.getResolvedParameters().entrySet()) {
-                        String paramName = entry.getKey();
-                        ParamCategory paramCategory = entry.getValue();
-                        TypeDescription parameType = targetTypePool.describe(adviceSpec.getParameterMap().get(paramName)).resolve();
-                        PointcutParameter.NamedPointcutParameter pointcutParameter = new PointcutParameter.Default(paramName, parameType, paramCategory); 
-
-                        namedPointcutParameters.put(paramName, pointcutParameter);
-                    }
-
-                    int i = 0;
-                    for (String paramName : unresoledPointcutParameters) {
-                        PointcutParameter pointcutParameterBinding = pointcutParameters.get(i++);
-                        if (pointcutParameterBinding == null) {
-                            if (LOGGER.isWarnEnabled()) {
-                                LOGGER.warn("Ignored advice method with advice parameters do not contain target method's resolved parameter '{}'. \n" 
-                                        + "  DeclaringType: {} \n"
-                                        + "  AdviceMethod: {} \n"
-                                        + "    AdviceParameters: {} \n"
-                                        + "  TargetMethod: {} \n"
-                                        + "    ParameterIndex: {} \n",
-                                        paramName, 
-                                        adviceSpec.getDeclaringTypeName(),
-                                        toString(adviceSpec.getDeclaringTypeName(), getAdviceMethod(), adviceSpec.getAdviceMethodSignature()), 
-                                        unresoledPointcutParameters,
-                                        MethodUtils.getMethodSignature(targetMethod),
-                                        pointcutParameters == null ? null : pointcutParameters.stream()
-                                                .map( p -> p.getArgsIndex() + ", " )
-                                                .collect( Collectors.toList() )
-                                );
+                            switch (parameterCategory) {
+                            case RETURNING_ANNOTATION: {
+                                matchedType = targetMethod.getReturnType();
+                                break;
+                            }
+                            case THROWING_ANNOTATION: {
+                                // TODO:
+                                break;
+                            }
+                            default:
+                                break;
                             }
 
-                            return false;
+                            resolvedParameters.add(new ResolvedParameter.Default(parameter.getName(), parameterCategory,
+                                    matchedType, parameterType));
+                        } else {
+                            PointcutParameter pointcutParameter = pointcutParameterIndex < pointcutParameters.size()
+                                    ? pointcutParameters.get(pointcutParameterIndex++)
+                                    : null;
+                            if (pointcutParameter == null) {
+                                if (LOGGER.isWarnEnabled()) {
+                                    LOGGER.warn(
+                                            "Ignored advice method with parameter '{}' could not bind to target method's parameter. \n"
+                                                    + "  DeclaringType: {} \n" + "  AdviceMethod: {} \n"
+                                                    + "  TargetMethod: {} \n",
+                                            parameter.getName(), adviceSpec.getDeclaringTypeName(),
+                                            MethodUtils.getMethodSignature(adviceMethod),
+                                            MethodUtils.getMethodSignature(targetMethod));
+                                }
+
+                                return false;
+                            }
+
+                            Generic matchedType = null;
+                            if (pointcutParameter.getArgsIndex() >= 0)
+                                matchedType = targetMethodParameters.get(pointcutParameter.getArgsIndex()).getType();
+                            else
+                                matchedType = aspectTypePool.describe(pointcutParameter.getMacthedTypeName()).resolve()
+                                        .asGenericType();
+
+                            resolvedParameters.add(new ResolvedParameter.Default(parameter.getName(), pointcutParameter,
+                                    matchedType, parameterType));
                         }
-
-                        namedPointcutParameters.put(paramName, new PointcutParameter.Default(
-                                paramName, 
-                                targetTypePool.describe(adviceSpec.getParameterMap().get(paramName)).resolve(), 
-                                pointcutParameterBinding)
-                        );
                     }
-                    this.namedPointcutParameters = namedPointcutParameters;
 
-                    Generic returnType = targetMethod.getReturnType();
-                    this.voidReturning = returnType.represents(void.class);
+                    this.resolvedParameters = resolvedParameters;
 
                     return true;
                 }
 
-
-                /** 
+                /**
                  * {@inheritDoc}
                  */
                 @Override
-                public Map<String, NamedPointcutParameter> getNamedPointcutParameters() {
-                    return namedPointcutParameters;
+                public List<ResolvedParameter> getResolvedParameters() {
+                    return resolvedParameters;
                 }
 
-                /** 
-                 * {@inheritDoc}
-                 */
-                @Override
-                public boolean isVoidReturning() {
-                    return voidReturning;
-                }
-
-                /** 
+                /**
                  * {@inheritDoc}
                  */
                 @Override
@@ -1159,106 +993,151 @@ public interface AdviceSpec extends AnnotationFinder {
         }
     }
 
-
-    /** 
-     * Raw ByteBuddy {@code @Advice} class spec, incuding enterAdviceMethod and exitAdviceMethod.
+    /**
+     * Raw ByteBuddy {@code @Advice} class spec, incuding enterAdviceMethod and
+     * exitAdviceMethod.
      */
     interface ByteBuddyAdviceSpec extends AdviceSpec {
 
         /**
-         * Represent advice method annotated with {@link OnMethodEnter} or {@link OnMethodExit}.
-         * 
-         * @return the enter advice method instance
+         * Returns the ByteBuddy advice kind (ON_METHOD_ENTER, ON_METHOD_EXIT, or
+         * ON_METHOD_ENTER_EXIT).
+         *
+         * @return the {@link PojoAdviceKind}
          */
-        List<ByteBuddyAdviceMethodSpec> getAdviceMethodSpecs();
+        @Override
+        ByteBuddyAdviceKind getAdviceKind();
 
+        /**
+         * Subtype of {@link ByteBuddyAdviceSpec} holds metadata used to load
+         * {@link ByteBuddyAdviceSpec.Loaded} instance per target {@link TypePool}.
+         */
+        interface Unloaded extends ByteBuddyAdviceSpec, Loadable<ByteBuddyAdviceSpec.Loaded> {
 
-        class ByteBuddyAdviceMethodSpec {
+            /**
+             * The default implementation of {@link ByteBuddyAdviceSpec.Unloaded}.
+             */
+            class Default extends AdviceSpec.AbstractBase implements ByteBuddyAdviceSpec.Unloaded {
 
-            private final boolean enterMethod;
-            private final MethodDescription adviceMethod;
+                private final MethodDescription enterAdviceMethod;
+                private final MethodDescription exitAdviceMethod;
 
-            private final boolean voidReturn;
-            private final boolean assignReturnedToThis;
+                public Default(AdviceKind adviceKind, TypeDescription declaringType,
+                        MethodDescription enterAdviceMethod, MethodDescription exitAdviceMethod) {
+                    super(adviceKind, declaringType, declaringType.getTypeName());
 
-            public ByteBuddyAdviceMethodSpec(boolean enterMethod, MethodDescription adviceMethod) {
-                this.enterMethod = enterMethod;
-                this.adviceMethod = adviceMethod;
+                    this.enterAdviceMethod = enterAdviceMethod;
+                    this.exitAdviceMethod = exitAdviceMethod;
+                }
 
-                this.voidReturn = adviceMethod.getReturnType().represents(void.class);
-                this.assignReturnedToThis = adviceMethod.getDeclaredAnnotations().isAnnotationPresent(
-                        net.bytebuddy.asm.Advice.AssignReturned.ToThis.class);
-            }
+                /**
+                 * {@inheritDoc}
+                 */
+                @Override
+                public ByteBuddyAdviceKind getAdviceKind() {
+                    return (ByteBuddyAdviceKind) super.getAdviceKind();
+                }
 
-            public MethodDescription getAdviceMethod() {
-                return adviceMethod;
-            }
+                public MethodDescription getEnterAdviceMethod() {
+                    return enterAdviceMethod;
+                }
 
-            public boolean isEnterMethod() {
-                return enterMethod;
-            }
+                public MethodDescription getExitAdviceMethod() {
+                    return exitAdviceMethod;
+                }
 
-            public boolean isVoidReturn() {
-                return voidReturn;
-            }
-
-            public boolean isAssignReturnedToThis() {
-                return assignReturnedToThis;
+                /**
+                 * {@inheritDoc}
+                 */
+                @Override
+                public Loaded load(TypePool aspectTypePool) {
+                    return new ByteBuddyAdviceSpec.Loaded.Default(aspectTypePool, this);
+                }
             }
         }
 
-
         /**
-         * Default {@link ByteBuddyAdviceSpec} implementation for raw ByteBuddy {@code @Advice} classes.
+         * Subtype of {@link ByteBuddyAdviceSpec} parses metadata, which should be
+         * resolved per target {@link TypePool}.
          */
-        class Default extends AbstractBase implements ByteBuddyAdviceSpec {
-
-            private final List<ByteBuddyAdviceMethodSpec> adviceMethodSpecs;
-
+        interface Loaded extends ByteBuddyAdviceSpec {
 
             /**
-             * Creates a ByteBuddy advice spec from the given advice class type.
-             *
-             * @param adviceKind    the ByteBuddy advice kind (OnMethodEnter, OnMethodExit, or both)
-             * @param declaringType the ByteBuddy {@code @Advice} class type description
+             * Return the enter advice method description.
+             * 
+             * @return the enter advice {@link MethodDescription}.
              */
-            public Default(ByteBuddyAdviceKind adviceKind, TypeDescription declaringType,
-                    MethodDescription enterAdviceMethod, MethodDescription exitAdviceMethod) {
-                super(adviceKind, declaringType, declaringType.getTypeName());
-
-                List<ByteBuddyAdviceMethodSpec> adviceMethodSpecs = new ArrayList<>(2);
-                if (enterAdviceMethod != null)
-                    adviceMethodSpecs.add( new ByteBuddyAdviceMethodSpec(true, enterAdviceMethod) );
-                if (exitAdviceMethod != null)
-                    adviceMethodSpecs.add( new ByteBuddyAdviceMethodSpec(false, exitAdviceMethod) );
-                this.adviceMethodSpecs = adviceMethodSpecs;
-            }
-
-
-            /** 
-             * Returns the Buddy advice kind (OnMethodEnter, OnMethodExit, or both). 
-             */
-            @Override
-            public ByteBuddyAdviceKind getAdviceKind() {
-                return (ByteBuddyAdviceKind) super.getAdviceKind();
-            }
+            MethodDescription getEnterAdviceMethod();
 
             /**
-             * {@inheritDoc}
+             * Return the exit advice method description.
+             * 
+             * @return the exit advice {@link MethodDescription}.
              */
-            @Override
-            public List<ByteBuddyAdviceMethodSpec> getAdviceMethodSpecs() {
-                return adviceMethodSpecs;
+            MethodDescription getExitAdviceMethod();
+
+            /**
+             * The default implementation of {@link ByteBuddyAdviceSpec.Loaded}.
+             */
+            class Default extends AdviceSpec.AbstractBase implements ByteBuddyAdviceSpec.Loaded {
+
+                private final TypePool aspectTypePool;
+                private final ByteBuddyAdviceSpec.Unloaded.Default adviceSpec;
+
+                private MethodDescription enterAdviceMethod;
+                private MethodDescription exitAdviceMethod;
+
+                public Default(TypePool aspectTypePool, ByteBuddyAdviceSpec.Unloaded.Default adviceSpec)
+                        throws IllegalSpecException {
+                    super(adviceSpec.getAdviceKind(), null, adviceSpec.getAdviceClassName());
+
+                    this.aspectTypePool = aspectTypePool;
+                    this.adviceSpec = adviceSpec;
+
+                }
+
+                /**
+                 * {@inheritDoc}
+                 */
+                @Override
+                public ByteBuddyAdviceKind getAdviceKind() {
+                    return (ByteBuddyAdviceKind) super.getAdviceKind();
+                }
+
+                /**
+                 * {@inheritDoc}
+                 */
+                @Override
+                public TypeDescription getDeclaringType() {
+                    if (super.getDeclaringType() == null)
+                        this.setDeclaringType(aspectTypePool.describe(adviceSpec.getDeclaringTypeName()).resolve());
+                    return super.getDeclaringType();
+                }
+
+                /**
+                 * {@inheritDoc}
+                 */
+                @Override
+                public MethodDescription getEnterAdviceMethod() {
+                    if (this.enterAdviceMethod == null && adviceSpec.getEnterAdviceMethod() != null)
+                        this.enterAdviceMethod = loadAdviceMethod(aspectTypePool, getDeclaringType(),
+                                adviceSpec.getEnterAdviceMethod());
+
+                    return this.enterAdviceMethod;
+                }
+
+                /**
+                 * {@inheritDoc}
+                 */
+                @Override
+                public MethodDescription getExitAdviceMethod() {
+                    if (this.exitAdviceMethod == null && adviceSpec.getExitAdviceMethod() != null)
+                        this.exitAdviceMethod = loadAdviceMethod(aspectTypePool, getDeclaringType(),
+                                adviceSpec.getExitAdviceMethod());
+
+                    return this.exitAdviceMethod;
+                }
             }
-
-
-//            /** 
-//             * {@inheritDoc}
-//             */
-//            @Override
-//            public AdviceSpec load(TypePool targetTypePool) {
-//                return this;
-//            }
         }
     }
 }

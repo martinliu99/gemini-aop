@@ -21,14 +21,11 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.Map.Entry;
 
 import io.gemini.aop.AdviceKind.AspectJAdviceKind;
 import io.gemini.aop.factory.support.AdviceSpec.AspectJAdviceSpec;
 import io.gemini.api.aop.Advice;
 import io.gemini.api.aop.Joinpoint;
-import io.gemini.aspectj.weaver.PointcutParameter.NamedPointcutParameter;
 import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.asm.AsmVisitorWrapper;
 import net.bytebuddy.description.method.MethodDescription;
@@ -94,9 +91,9 @@ enum AspectJAdviceGenerator {
                 .build();
 
         List<TypeDefinition> implementTypeDefinitions = new ArrayList<>(2);
-        if (adviceKind.isAround() == true) {
+        if (adviceKind.isAround()) {
             implementTypeDefinitions.add(AROUND_ADVICE_TYPE);
-        } else if (adviceKind.isBefore() == true) {
+        } else if (adviceKind.isBefore()) {
             implementTypeDefinitions.add(BEFORE_ADVICE_TYPE);
         } else {
             implementTypeDefinitions.add(AFTER_ADVICE_TYPE);
@@ -148,8 +145,7 @@ enum AspectJAdviceGenerator {
      */
     static class AspectJAdviceMethodImplementation implements Implementation, ByteCodeAppender {
 
-        private static final TypeDescription OBJECT = TypeDescription.ForLoadedType.of(Object.class);
-        private static final TypeDescription VOID = TypeDescription.ForLoadedType.of(void.class);
+        private static final Generic OBJECT = TypeDescription.ForLoadedType.of(Object.class).asGenericType();
 
         private static final int PARAM_INDEX0_THIS_OBJECT = 0;
         private static final int PARAM_INDEX1_MUTABLE_JOINPOINT = 1;
@@ -158,8 +154,8 @@ enum AspectJAdviceGenerator {
         private static final MethodDescription.InDefinedShape GET_STATIC_PART_METHOD = JOINPOINT_TYPE.getDeclaredMethods().filter(named("getStaticPart")).getOnly();
         private static final MethodDescription.InDefinedShape GET_TARGET_OBJECT_METHOD = JOINPOINT_TYPE.getDeclaredMethods().filter(named("getTargetObject")).getOnly();
 
-        private static final MethodDescription.InDefinedShape GET_RETURNING_METHOD = MUTABLE_JOINPOINT_TYPE.getDeclaredMethods().filter(named("getReturning")).getOnly();
-        private static final MethodDescription.InDefinedShape GET_THROWING_METHOD = MUTABLE_JOINPOINT_TYPE.getDeclaredMethods().filter(named("getThrowing")).getOnly();
+        private static final MethodDescription.InDefinedShape GET_RETURN_VALUE_METHOD = MUTABLE_JOINPOINT_TYPE.getDeclaredMethods().filter(named("getReturnValue")).getOnly();
+        private static final MethodDescription.InDefinedShape GET_THROWN_EXCEPTION_METHOD = MUTABLE_JOINPOINT_TYPE.getDeclaredMethods().filter(named("getThrownException")).getOnly();
 
 
         private final AspectJAdviceSpec.Loaded adviceSpec;
@@ -201,16 +197,16 @@ enum AspectJAdviceGenerator {
             // 1.decide AfterReturning or AfterThrowing Advice invocation
             final Label nullCheck = new Label();
             AspectJAdviceKind adviceKind = adviceSpec.getAdviceKind();
-            if (adviceKind.isAfterReturning() == true || adviceKind.isAfterThrowing() == true) {
+            if (adviceKind.isAfterReturning() || adviceKind.isAfterThrowing()) {
                 methodVisitor.visitVarInsn(Opcodes.ALOAD, PARAM_INDEX1_MUTABLE_JOINPOINT);
                 methodVisitor.visitMethodInsn(Opcodes.INVOKEINTERFACE, MUTABLE_JOINPOINT_TYPE.getInternalName(), 
-                        GET_THROWING_METHOD.getInternalName(), GET_THROWING_METHOD.getDescriptor(), true);
+                        GET_THROWN_EXCEPTION_METHOD.getInternalName(), GET_THROWN_EXCEPTION_METHOD.getDescriptor(), true);
 
                 // if (throwing == null) invoke AfterReturning Advice
-                if (adviceKind.isAfterReturning() == true)
+                if (adviceKind.isAfterReturning())
                     methodVisitor.visitJumpInsn(Opcodes.IFNONNULL, nullCheck);
                 // if (throwing != null) invoke AfterThrowing Advice
-                if (adviceKind.isAfterThrowing() == true)
+                if (adviceKind.isAfterThrowing())
                     methodVisitor.visitJumpInsn(Opcodes.IFNULL, nullCheck);
             }
 
@@ -220,25 +216,25 @@ enum AspectJAdviceGenerator {
 
             // push target field for non-static method
             MethodDescription adviceMethod = adviceSpec.getAdviceMethod();
-            if (adviceMethod.isStatic() == false) {
+            if (!adviceMethod.isStatic()) {
                 methodVisitor.visitVarInsn(Opcodes.ALOAD, PARAM_INDEX0_THIS_OBJECT);
                 methodVisitor.visitMethodInsn(Opcodes.INVOKEVIRTUAL, AspectJAdviceAdapter.ASPECTJ_ADPATER_TYPE.getInternalName(),
                         AspectJAdviceAdapter.GET_DELEGATE_OBJECT_METHOD.getInternalName(), AspectJAdviceAdapter.GET_DELEGATE_OBJECT_METHOD.getDescriptor(), false);
-                Assigner.DEFAULT.assign(OBJECT.asGenericType(), adviceSpec.getDeclaringType().asGenericType(), Typing.DYNAMIC).apply(methodVisitor, implementationContext);
+                Assigner.DEFAULT.assign(OBJECT, adviceSpec.getDeclaringType().asGenericType(), Typing.DYNAMIC).apply(methodVisitor, implementationContext);
 
                 operandsStackSize++;
             }
 
             // push arguments based on binder type
-            Map<String, NamedPointcutParameter> namedPointcutParameters = adviceSpec.getNamedPointcutParameters();
+            List<ResolvedParameter> resolvedParameters = adviceSpec.getResolvedParameters();
             int paramIndex = 0;
-            for (Entry<String, NamedPointcutParameter> entry : namedPointcutParameters.entrySet()) {
-                NamedPointcutParameter pointcutParameter = entry.getValue();
-                TypeDescription parameterType = pointcutParameter.getParamType().asErasure();
+            for (ResolvedParameter resolvedParameter : resolvedParameters) {
+                Generic matchedType = resolvedParameter.getMatchedType();
+                Generic parameterType = resolvedParameter.getParameterType();
 
                 paramIndex++;
                 operandsStackSize++;
-                switch (pointcutParameter.getParamCategory()) {
+                switch (resolvedParameter.getParameterCategory()) {
                     case JOINPOINT_PARAM:
                     case MUTABLE_JOINPOINT_PARAM:
                     case PROCEDDING_JOINPOINT_PARAM: {
@@ -256,25 +252,28 @@ enum AspectJAdviceGenerator {
                         break;
                     }
                     case RETURNING_ANNOTATION: {
-                        if (adviceSpec.isVoidReturning()) {
-                            Assigner.DEFAULT.assign(VOID.asGenericType(), parameterType.asGenericType(), Typing.DYNAMIC).apply(methodVisitor, implementationContext);
-                        } else {
-                            methodVisitor.visitVarInsn(Opcodes.ALOAD, PARAM_INDEX1_MUTABLE_JOINPOINT);
-                            methodVisitor.visitMethodInsn(Opcodes.INVOKEINTERFACE, MUTABLE_JOINPOINT_TYPE.getInternalName(), 
-                                    GET_RETURNING_METHOD.getInternalName(), GET_RETURNING_METHOD.getDescriptor(), true);
-                            Assigner.DEFAULT.assign(OBJECT.asGenericType(), parameterType.asGenericType(), Typing.DYNAMIC).apply(methodVisitor, implementationContext);
+                        methodVisitor.visitVarInsn(Opcodes.ALOAD, PARAM_INDEX1_MUTABLE_JOINPOINT);
+                        methodVisitor.visitMethodInsn(Opcodes.INVOKEINTERFACE, MUTABLE_JOINPOINT_TYPE.getInternalName(), 
+                                GET_RETURN_VALUE_METHOD.getInternalName(), GET_RETURN_VALUE_METHOD.getDescriptor(), true);
 
-                            if (parameterType.getStackSize().getSize() > 1)
-                                operandsStackSize++;
+                        //
+                        if (parameterType.equals(matchedType) || !parameterType.isPrimitive())
+                            Assigner.DEFAULT.assign(OBJECT, parameterType, Typing.DYNAMIC).apply(methodVisitor, implementationContext);
+                        else {
+                            Assigner.DEFAULT.assign(OBJECT, matchedType, Typing.DYNAMIC).apply(methodVisitor, implementationContext);
+                            Assigner.DEFAULT.assign(matchedType, parameterType, Typing.DYNAMIC).apply(methodVisitor, implementationContext);
                         }
+
+                        if (matchedType.getStackSize().getSize() > 1)
+                            operandsStackSize++;
 
                         break;
                     }
                     case THROWING_ANNOTATION: {
                         methodVisitor.visitVarInsn(Opcodes.ALOAD, PARAM_INDEX1_MUTABLE_JOINPOINT);
                         methodVisitor.visitMethodInsn(Opcodes.INVOKEINTERFACE, MUTABLE_JOINPOINT_TYPE.getInternalName(), 
-                                GET_THROWING_METHOD.getInternalName(), GET_THROWING_METHOD.getDescriptor(), true);
-                        methodVisitor.visitTypeInsn(Opcodes.CHECKCAST, parameterType.getInternalName());
+                                GET_THROWN_EXCEPTION_METHOD.getInternalName(), GET_THROWN_EXCEPTION_METHOD.getDescriptor(), true);
+                        Assigner.DEFAULT.assign(OBJECT, matchedType, Typing.DYNAMIC).apply(methodVisitor, implementationContext);
 
                         break;
                     }
@@ -283,7 +282,7 @@ enum AspectJAdviceGenerator {
                         methodVisitor.visitVarInsn(Opcodes.ALOAD, PARAM_INDEX1_MUTABLE_JOINPOINT);
                         methodVisitor.visitMethodInsn(Opcodes.INVOKEINTERFACE, MUTABLE_JOINPOINT_TYPE.getInternalName(), 
                                 GET_TARGET_OBJECT_METHOD.getInternalName(), GET_TARGET_OBJECT_METHOD.getDescriptor(), true);
-                        methodVisitor.visitTypeInsn(Opcodes.CHECKCAST, parameterType.getInternalName());
+                        Assigner.DEFAULT.assign(OBJECT, matchedType, Typing.DYNAMIC).apply(methodVisitor, implementationContext);
 
                         break;
                     }
@@ -292,12 +291,18 @@ enum AspectJAdviceGenerator {
                         methodVisitor.visitMethodInsn(Opcodes.INVOKEINTERFACE, JOINPOINT_TYPE.getInternalName(), 
                                 GET_ARGUMENTS_METHOD.getInternalName(), GET_ARGUMENTS_METHOD.getDescriptor(), true);
 
-                        IntegerConstant.forValue(pointcutParameter.getArgsIndex()).apply(methodVisitor, implementationContext);
+                        IntegerConstant.forValue(resolvedParameter.getArgsIndex()).apply(methodVisitor, implementationContext);
                         methodVisitor.visitInsn(Opcodes.AALOAD);
-                        Assigner.DEFAULT.assign(OBJECT.asGenericType(), parameterType.asGenericType(), Typing.DYNAMIC).apply(methodVisitor, implementationContext);
+
+                        if (parameterType.equals(matchedType) || !parameterType.isPrimitive())
+                            Assigner.DEFAULT.assign(OBJECT, parameterType, Typing.DYNAMIC).apply(methodVisitor, implementationContext);
+                        else {
+                            Assigner.DEFAULT.assign(OBJECT, matchedType, Typing.DYNAMIC).apply(methodVisitor, implementationContext);
+                            Assigner.DEFAULT.assign(matchedType, parameterType, Typing.DYNAMIC).apply(methodVisitor, implementationContext);
+                        }
 
                         operandsStackSize++;
-                        if (parameterType.getStackSize().getSize() == 1 && paramIndex < namedPointcutParameters.size())
+                        if (matchedType.getStackSize().getSize() == 1 && paramIndex < resolvedParameters.size())
                             operandsStackSize--;
                         break;
                     }
@@ -309,16 +314,16 @@ enum AspectJAdviceGenerator {
             // invoke delegatee.method(joinpoint, ...)
             MethodInvocation.invoke(adviceMethod).apply(methodVisitor, implementationContext);
 
-            // pop returning if exists
-            Generic returningType = adviceMethod.getReturnType();
-            int stackSize = returningType.getStackSize().getSize();
+            // pop the return value if exists
+            Generic returnType = adviceMethod.getReturnType();
+            int stackSize = returnType.getStackSize().getSize();
             if (stackSize > 0) {
                 methodVisitor.visitInsn(stackSize == 2 ? Opcodes.POP2 : Opcodes.POP);
             }
 
 
             // 3.mark method return label
-            if (adviceKind.isAfterReturning() == true || adviceKind.isAfterThrowing() == true) {
+            if (adviceKind.isAfterReturning() || adviceKind.isAfterThrowing()) {
                 methodVisitor.visitLabel(nullCheck);
                 methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);     // calculate stack frame map
             }

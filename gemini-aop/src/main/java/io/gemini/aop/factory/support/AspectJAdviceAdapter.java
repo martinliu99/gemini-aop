@@ -25,13 +25,10 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
 
 import io.gemini.aop.factory.support.AdviceSpec.AspectJAdviceSpec;
 import io.gemini.api.aop.Advice;
 import io.gemini.api.aop.Joinpoint.MutableJoinpoint;
-import io.gemini.aspectj.weaver.PointcutParameter.NamedPointcutParameter;
 import io.gemini.core.util.ClassUtils;
 import io.gemini.core.util.MethodHandleLookup;
 import net.bytebuddy.description.method.MethodDescription;
@@ -97,13 +94,13 @@ public abstract class AspectJAdviceAdapter<A> extends Advice.AbstractBase {
         MethodDescription adviceMethod = adviceSpec.getAdviceMethod();
         Class<?> returnType = ClassUtils.forName(adviceMethod.getReturnType().getTypeName(), classLoader);
 
-        Map<String, NamedPointcutParameter> namedPointcutParameters = adviceSpec.getNamedPointcutParameters();
-        List<Class<?>> paramTypes = new ArrayList<Class<?>>(namedPointcutParameters.size());
-        for (NamedPointcutParameter namedPointcutParameter : namedPointcutParameters.values()) {
-            paramTypes.add( ClassUtils.forName(namedPointcutParameter.getParamType().getTypeName(), classLoader) );
+        List<ResolvedParameter> resolvedParameters = adviceSpec.getResolvedParameters();
+        List<Class<?>> parameterTypes = new ArrayList<Class<?>>(resolvedParameters.size());
+        for (ResolvedParameter resolvedParameter : resolvedParameters) {
+            parameterTypes.add( ClassUtils.forName(resolvedParameter.getMatchedType().getTypeName(), classLoader) );
         }
 
-        MethodType methodType = MethodType.methodType(returnType, paramTypes);
+        MethodType methodType = MethodType.methodType(returnType, parameterTypes);
 
         MethodHandleLookup lookup = MethodHandleLookup.select(delegateClass, MethodHandles.lookup());
         if (adviceMethod.isStatic())
@@ -115,10 +112,10 @@ public abstract class AspectJAdviceAdapter<A> extends Advice.AbstractBase {
 
     protected Object[] getArguments(MutableJoinpoint<Object, Throwable> joinpoint) {
         int index = 0;
-        Map<String, NamedPointcutParameter> namedPointcutParameters = adviceSpec.getNamedPointcutParameters();
-        Object[] args = new Object[namedPointcutParameters.size()];
-        for (Entry<String, NamedPointcutParameter> entry : namedPointcutParameters.entrySet()) {
-            switch (entry.getValue().getParamCategory()) {
+        List<ResolvedParameter> resolvedParameters = adviceSpec.getResolvedParameters();
+        Object[] args = new Object[resolvedParameters.size()];
+        for (ResolvedParameter resolvedParameter : resolvedParameters) {
+            switch (resolvedParameter.getParameterCategory()) {
                 case JOINPOINT_PARAM:
                 case MUTABLE_JOINPOINT_PARAM:
                 case PROCEDDING_JOINPOINT_PARAM: {
@@ -134,12 +131,12 @@ public abstract class AspectJAdviceAdapter<A> extends Advice.AbstractBase {
                     break;
                 }
                 case RETURNING_ANNOTATION: {
-                    args[index++] = joinpoint.getReturning();
+                    args[index++] = joinpoint.getReturnValue();
 
                     break;
                 }
                 case THROWING_ANNOTATION: {
-                    args[index++] = joinpoint.getThrowing();
+                    args[index++] = joinpoint.getThrownException();
 
                     break;
                 }
@@ -150,8 +147,7 @@ public abstract class AspectJAdviceAdapter<A> extends Advice.AbstractBase {
                     break;
                 }
                 case ARGS_VAR: {
-                    Object[] arguments = joinpoint.getArguments();
-                    args[index++] = arguments[entry.getValue().getArgsIndex()];
+                    args[index++] = joinpoint.getArguments()[resolvedParameter.getArgsIndex()];
 
                     break;
                 }
