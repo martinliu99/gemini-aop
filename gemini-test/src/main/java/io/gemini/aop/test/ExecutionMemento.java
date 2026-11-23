@@ -17,9 +17,11 @@ package io.gemini.aop.test;
 
 import java.lang.invoke.MethodHandles.Lookup;
 import java.lang.reflect.AccessibleObject;
-import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Thread-local memento for capturing joinpoint invocation state in integration tests.
@@ -38,12 +40,12 @@ public class ExecutionMemento<T> {
 
     // do not use subtype to avoid possible class initialization deadlock
     private static ThreadLocal<Map<String, ExecutionMemento>> TARGET_METHOD_MEMENTOES;
+
+    private static ThreadLocal<List<String>> ADVICE_METHOD_NAMES;
     private static ThreadLocal<Map<String, ExecutionMemento>> ADVICE_METHOD_MEMENTOES;
 
 
     private T memento;
-
-    private boolean invoked;
 
     private Lookup targetLookup;
     private Class<?> targetClass;
@@ -51,8 +53,8 @@ public class ExecutionMemento<T> {
 
     private Object targetObject;
     private Object[] arguments;
-    private Object returning;
-    private Throwable throwing;
+    private Object returnValue;
+    private Throwable thrownException;
 
 
     static {
@@ -61,6 +63,14 @@ public class ExecutionMemento<T> {
             @Override
             protected Map<String, ExecutionMemento> initialValue() {
                 return new ConcurrentHashMap<>();
+            }
+        };
+
+        ADVICE_METHOD_NAMES = new ThreadLocal<List<String>>() {
+
+            @Override
+            protected List<String> initialValue() {
+                return new CopyOnWriteArrayList<>();
             }
         };
 
@@ -79,6 +89,8 @@ public class ExecutionMemento<T> {
      */
     public static void clearMemento() {
         TARGET_METHOD_MEMENTOES.get().clear();
+
+        ADVICE_METHOD_NAMES.get().clear();
         ADVICE_METHOD_MEMENTOES.get().clear();
     }
 
@@ -109,6 +121,7 @@ public class ExecutionMemento<T> {
      * @param memento      the memento to store
      */
     public static void putAdviceMethodInvoker(String adviceMethod, AdviceMethod memento) {
+        ADVICE_METHOD_NAMES.get().add(adviceMethod);
         ADVICE_METHOD_MEMENTOES.get().put(adviceMethod, memento);
     }
 
@@ -122,29 +135,17 @@ public class ExecutionMemento<T> {
         return (AdviceMethod) ADVICE_METHOD_MEMENTOES.get().get(adviceMethod);
     }
 
+    /**
+     * Returns all keys for the current thread.
+     * @return list of key identifying the target method
+     */
+    public static List<String> getAdviceMethodNames() {
+        return Collections.unmodifiableList( ADVICE_METHOD_NAMES.get() );
+    }
+
     protected T setInvoker(T invoker) {
         this.memento = invoker;
         return this.memento;
-    }
-
-    /**
-     * Returns whether the joinpoint was invoked.
-     *
-     * @return {@code true} if the target or advice method was invoked
-     */
-    public boolean isInvoked() {
-        return invoked;
-    }
-
-    /**
-     * Records whether the joinpoint was invoked and returns this memento for chaining.
-     *
-     * @param invoked {@code true} if the method was invoked
-     * @return this memento instance
-     */
-    public T withInvoked(boolean invoked) {
-        this.invoked = invoked;
-        return memento;
     }
 
     /**
@@ -244,19 +245,8 @@ public class ExecutionMemento<T> {
      * @param arguments the argument array to record
      * @return this memento instance
      */
-    public T withArgumnts(Object[] arguments) {
-        this.arguments = Arrays.copyOf(arguments, arguments.length);
-        return memento;
-    }
-
-    /**
-     * Records varargs arguments at the joinpoint (copied defensively) and returns this memento for chaining.
-     *
-     * @param arguments the varargs to record
-     * @return this memento instance
-     */
-    public T withVArgumnts(Object... arguments) {
-        this.arguments = Arrays.copyOf(arguments, arguments.length);
+    public T withArgumnts(Object... arguments) {
+        this.arguments = arguments;
         return memento;
     }
 
@@ -265,18 +255,18 @@ public class ExecutionMemento<T> {
      *
      * @return the return value, or {@code null} if the method returned void or threw
      */
-    public Object getReturning() {
-        return this.returning;
+    public Object getReturnValue() {
+        return this.returnValue;
     }
 
     /**
      * Records the return value after normal completion and returns this memento for chaining.
      *
-     * @param returning the return value to record
+     * @param returnValue the return value to record
      * @return this memento instance
      */
-    public T withReturning(Object returning) {
-        this.returning = returning;
+    public T withReturnValue(Object returnValue) {
+        this.returnValue = returnValue;
         return memento;
     }
 
@@ -285,18 +275,18 @@ public class ExecutionMemento<T> {
      *
      * @return the thrown exception, or {@code null} if the method completed normally
      */
-    public Throwable getThrowing() {
-        return this.throwing;
+    public Throwable getThrownException() {
+        return this.thrownException;
     }
 
     /**
      * Records the exception thrown at the joinpoint and returns this memento for chaining.
      *
-     * @param throwing the exception to record
+     * @param thrownException the exception to record
      * @return this memento instance
      */
-    public T withThrowing(Throwable throwing) {
-        this.throwing = throwing;
+    public T withThrownException(Throwable thrownException) {
+        this.thrownException = thrownException;
         return memento;
     }
 
