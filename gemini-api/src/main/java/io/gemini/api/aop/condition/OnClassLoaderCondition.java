@@ -60,18 +60,14 @@ public class OnClassLoaderCondition implements ElementMatcher<MatchingContext> {
      */
     @Override
     public boolean matches(MatchingContext context) {
-        if (isBootstrapClassLoader) {
-            if (context.isBootstrapClassLoader())
-                return true;
-        } else if (isExtClassLoader) {
-            if (context.isExtClassLoader())
-                return true;
-        } else if (isAppClassLoader) {
-            if (context.isAppClassLoader())
-                return true;
-        } else if (!"".equals(classLoaderExpression)) {
+        if (isBootstrapClassLoader && context.isBootstrapClassLoader())
+            return true;
+        else if (isExtClassLoader && context.isExtClassLoader())
+            return true;
+        else if (isAppClassLoader && context.isAppClassLoader())
+            return true;
+        else if (!"".equals(classLoaderExpression))
             return context.isClassLoader(classLoaderExpression);
-        }
 
         return false;
     }
