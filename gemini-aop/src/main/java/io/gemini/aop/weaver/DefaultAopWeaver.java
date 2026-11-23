@@ -19,7 +19,6 @@ import java.io.IOException;
 import java.lang.invoke.MethodHandles.Lookup;
 import java.lang.invoke.MethodType;
 import java.security.ProtectionDomain;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -74,12 +73,13 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
 
     private static final Logger LOGGER = LoggerFactory.getLogger(DefaultAopWeaver.class);
 
-
     private final AopContext aopContext;
     private final AdvisorFactory advisorFactory;
     private final WeaverContext weaverContext;
 
     private final ConcurrentMap<ClassLoader, ConcurrentMap<String /* typeName */, TargetTypeCache>> classLoaderTypeCache;
+
+    private final PointcutAdvisorWeaver pointcutAdvisorWeaver;
     private final List<WeavedCodeCallback> weavedCodeCallbacks;
 
 
@@ -96,6 +96,8 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
 
         // initialize properties
         this.classLoaderTypeCache = new ConcurrentReferenceHashMap<>();
+
+        this.pointcutAdvisorWeaver = new PointcutAdvisorWeaver.Compound(aopContext);
         this.weavedCodeCallbacks = new CopyOnWriteArrayList<>();
 
 
@@ -156,7 +158,7 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
         // 1.check cached result since bytebuddy will enter this method twice when class redefinition, or retransmission
         String targetTypeName = targetType.getTypeName();
         TargetTypeCache targetTypeCache = getTargetTypeCache(targetClassLoader, targetTypeName);
-        if (targetTypeCache != null && targetTypeCache.isMatched() == true)
+        if (targetTypeCache != null && targetTypeCache.isMatched())
             return true;
 
 
@@ -167,7 +169,7 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
                 targetClassLoaderAccepted ? targetClassLoader : AopMetrics.REJECTED_CLASS_LOADER, targetTypeName, startedAt);
 
         try {
-            if (targetClassLoaderAccepted == false)
+            if (!targetClassLoaderAccepted)
                 return false;
 
             // 3.get advisors
@@ -202,7 +204,7 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
         // 1.check if cached advisors exists
         String targetTypeName = targetType.getTypeName();
         TargetTypeCache targetTypeCache = getTargetTypeCache(targetClassLoader, targetTypeName);
-        if (targetTypeCache != null && targetTypeCache.isMatched() == false)
+        if (targetTypeCache != null && !targetTypeCache.isMatched())
             return builder;
 
 
@@ -212,8 +214,8 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
                 targetClassLoader, targetTypeName, startedAt);
 
         try {
-            for (Entry<String /* methodSignature */, PointcutAdvisorWeaver> entry : targetTypeCache.getAdvisorWeavers().entrySet()) {
-                builder = entry.getValue().weave(builder, targetTypeCache.isLoaded());
+            for (Entry<? extends MethodDescription, List<? extends Advisor>> entry : targetTypeCache.getTargetMethodAdvisors().entrySet()) {
+                builder = pointcutAdvisorWeaver.weave(builder, this, targetTypeCache.isLoaded(), entry.getKey(), entry.getValue());
             }
 
             if (true == targetTypeCache.setTransformed(true)) {
@@ -267,7 +269,7 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
     public int registerCallback(WeavedCodeCallback weavedCodeCallback) {
         int startPos = this.weavedCodeCallbacks.size();
         this.weavedCodeCallbacks.add(weavedCodeCallback);
-        for (int i = startPos; i< this.weavedCodeCallbacks.size(); i++) {
+        for (int i = startPos; i < this.weavedCodeCallbacks.size(); i++) {
             if (this.weavedCodeCallbacks.get(i) == weavedCodeCallback)
                 return i;
         }
@@ -332,7 +334,7 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
      * Holds the map of method signatures to {@link PointcutAdvisorWeaver} instances
      * and tracks whether the type has already been transformed.
      */
-    class TargetTypeCache {
+    static class TargetTypeCache {
 
         private final AopContext aopContext;
 
@@ -343,7 +345,7 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
         private final AtomicBoolean transformed;
 
         private final boolean shouldChangeClassFile;
-        private final Map<String /* methodSignature */, PointcutAdvisorWeaver> advisorWeavers;
+        private final Map<? extends MethodDescription, List<? extends Advisor>> targetMethodAdvisors;
 
 
         public TargetTypeCache(AopContext aopContext, String typeName, boolean loaded,
@@ -356,16 +358,15 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
 
             this.transformed = new AtomicBoolean(false);
 
-            // create advisorWeavers
-            this.advisorWeavers = new LinkedHashMap<>(targetMethodAdvisors.size());
+            this.targetMethodAdvisors = targetMethodAdvisors;
             boolean shouldChangeClassFile = false;
             for (Entry<? extends MethodDescription, List<? extends Advisor>> entry : targetMethodAdvisors.entrySet()) {
                 MethodDescription targetMethod = entry.getKey();
-                if (targetMethod.isNative())
+                if (targetMethod.isNative()) {
                     shouldChangeClassFile = true;
 
-                this.advisorWeavers.put(targetMethod.toGenericString(), 
-                        new PointcutAdvisorWeaver.Compound(DefaultAopWeaver.this, loaded, entry.getKey(), entry.getValue()) );
+                    break;
+                }
             }
             this.shouldChangeClassFile = shouldChangeClassFile;
         }
@@ -383,20 +384,16 @@ class DefaultAopWeaver implements AopWeaver, AgentBuilder.TypeStrategy, Bootstra
             return loaded;
         }
 
-        public Map<String /* methodSignature */, PointcutAdvisorWeaver> getAdvisorWeavers() {
-            return this.advisorWeavers;
+        public Map<? extends MethodDescription, List<? extends Advisor>> getTargetMethodAdvisors() {
+            return this.targetMethodAdvisors;
         }
 
         public boolean shouldChangeClassFile() {
             return shouldChangeClassFile;
         }
 
-        public PointcutAdvisorWeaver getAdvisorWeaver(String targetMethodSignature) {
-            return this.advisorWeavers.get(targetMethodSignature);
-        }
-
         public boolean isMatched() {
-            return advisorWeavers.size() > 0;
+            return targetMethodAdvisors.size() > 0;
         }
 
         public boolean isTransformed() {

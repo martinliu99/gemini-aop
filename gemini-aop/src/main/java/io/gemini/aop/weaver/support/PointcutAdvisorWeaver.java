@@ -16,65 +16,32 @@
 package io.gemini.aop.weaver.support;
 
 import static net.bytebuddy.matcher.ElementMatchers.is;
-import static net.bytebuddy.matcher.ElementMatchers.named;
 
-import java.lang.invoke.ConstantCallSite;
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodHandles.Lookup;
-import java.lang.invoke.MethodType;
-import java.lang.reflect.AccessibleObject;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.gemini.aop.AdviceKind.ByteBuddyAdviceKind;
-import io.gemini.aop.AdviceKind.Managed;
 import io.gemini.aop.Advisor;
-import io.gemini.aop.Advisor.PointcutAdvisor;
+import io.gemini.aop.AopContext;
 import io.gemini.aop.weaver.AopWeaver;
-import io.gemini.aop.weaver.Joinpoints;
-import io.gemini.aop.weaver.WeaverContext;
-import io.gemini.aop.weaver.advice.CircularityBreakerCodeGenerator;
-import io.gemini.aop.weaver.advice.DescriptorOffset;
 import io.gemini.api.annotation.NoScanning;
 import io.gemini.core.OrderComparator;
-import io.gemini.core.Ordered;
-import io.gemini.core.classloader.ThreadContext;
-import io.gemini.core.object.ObjectFactory.ObjectsException;
-import io.gemini.core.util.ClassUtils;
-import io.gemini.core.util.CollectionUtils;
-import io.gemini.core.util.MethodHandleLookup;
 import io.gemini.core.util.MethodUtils;
-import io.gemini.core.util.Throwables;
-import net.bytebuddy.asm.Advice;
-import net.bytebuddy.asm.Advice.WithCustomMapping;
 import net.bytebuddy.asm.AsmVisitorWrapper;
-import net.bytebuddy.asm.AsmVisitorWrapper.ForDeclaredMethods.MethodVisitorWrapper;
 import net.bytebuddy.description.method.MethodDescription;
-import net.bytebuddy.description.type.TypeDescription;
-import net.bytebuddy.dynamic.ClassFileLocator;
 import net.bytebuddy.dynamic.DynamicType;
 import net.bytebuddy.implementation.Implementation;
-import net.bytebuddy.implementation.MethodCall;
-import net.bytebuddy.implementation.bytecode.assign.Assigner;
-import net.bytebuddy.pool.TypePool;
 
 /**
- * Applies one or more {@link io.gemini.aop.Advisor.PointcutAdvisor} instances to a target method
+ * Weaves one or more {@link io.gemini.aop.Advisor.PointcutAdvisor} instances into a target method
  * via ByteBuddy bytecode transformation.
  * <p>
- * Three concrete implementations handle different advice styles:
+ * Two concrete implementations handle different advice styles:
  * <ul>
- *   <li>{@link NativeMethodWeaver} – renames native methods to allow interception</li>
- *   <li>{@link ManagedAdviceWeaver} – weaves POJO and AspectJ advice using framework-generated
- *       {@code io.gemini.api.aop.Advice} classes and the {@link io.gemini.aop.weaver.BootstrapDispatcher}</li>
- *   <li>{@link ByteBuddyAdviceWeaver} – weaves raw ByteBuddy {@code net.bytebuddy.asm.Advice} classes directly</li>
+ *   <li>{@link RegularMethodWeaver} – weaves regular java method with {@link PointcutAdvisorHandler}</li>
+ *   <li>{@link NativeMethodWeaver} – weaves native method with {@link PointcutAdvisorHandler}</li>
  * </ul>
  * The {@link Compound} implementation delegates to all registered weavers in order.
  * </p>
@@ -90,10 +57,14 @@ public interface PointcutAdvisorWeaver {
      * Applies bytecode transformations for one or more advisors to the given type builder.
      *
      * @param builder   the ByteBuddy type builder to transform
-     * @param arguments optional additional arguments (e.g. loaded-type flag)
+     * @param aopWeaver the instance of {@link AopWeaver}
+     * @param loadedType the type is loaded or not
+     * @param targetMethod the target method to transform
+     * @param advisors list of advisors
      * @return the modified type builder, or {@code null} if no transformation was applied
      */
-    DynamicType.Builder<?> weave(DynamicType.Builder<?> builder, Object... arguments);
+    DynamicType.Builder<?> weave(DynamicType.Builder<?> builder, AopWeaver aopWeaver,
+            boolean loadedType, MethodDescription targetMethod, List<? extends Advisor> advisors);
 
 
     /**
@@ -103,25 +74,16 @@ public interface PointcutAdvisorWeaver {
     @NoScanning
     class Compound implements PointcutAdvisorWeaver {
 
-        private final MethodDescription targetMethod;
-        private final List<? extends PointcutAdvisorWeaver> advisorWeavers;
+        private final List<? extends PointcutAdvisorWeaver> methodWeavers;
 
 
-        public Compound(AopWeaver aopWeaver, boolean loadedType, MethodDescription targetMethod, 
-                List<? extends Advisor> advisors) {
-            this.targetMethod = targetMethod;
+        public Compound(AopContext aopContext) {
+            List<? extends PointcutAdvisorWeaver> methodWeavers = aopContext.getObjectFactory()
+                    .createObjectsImplementing(PointcutAdvisorWeaver.class, false);
+            this.methodWeavers = methodWeavers == null 
+                    ? Collections.emptyList() : methodWeavers;
 
-            List<? extends PointcutAdvisorWeaver> advisorWeavers = aopWeaver.getWeaverContext().getAopContext().getObjectFactory()
-                    .createObjectsImplementing(PointcutAdvisorWeaver.class, 
-                            false, 
-                            "aopWeaver", aopWeaver, 
-                            "loadedType", loadedType,
-                            "targetMethod", targetMethod, 
-                            "advisors", advisors);
-            this.advisorWeavers = advisorWeavers == null 
-                    ? Collections.emptyList() : advisorWeavers;
-
-            OrderComparator.sort(advisorWeavers);
+             OrderComparator.sort(this.methodWeavers);
         }
 
 
@@ -129,18 +91,20 @@ public interface PointcutAdvisorWeaver {
          * {@inheritDoc}
          */
         @Override
-        public DynamicType.Builder<?> weave(DynamicType.Builder<?> builder, Object... arguments) {
-            for (PointcutAdvisorWeaver advisorWeaver : advisorWeavers) {
+        public DynamicType.Builder<?> weave(DynamicType.Builder<?> builder, AopWeaver aopWeaver,
+                boolean loadedType, MethodDescription targetMethod, List<? extends Advisor> advisors) {
+            for (PointcutAdvisorWeaver methodWeaver : methodWeavers) {
                 try {
-                    DynamicType.Builder<?> returning = advisorWeaver.weave(builder, arguments);
-                    if (returning != null)
-                        builder = returning;
+                    DynamicType.Builder<?> returnedBuilder = methodWeaver.weave(builder, aopWeaver,
+                            loadedType, targetMethod, advisors);
+                    if (returnedBuilder != null)
+                        builder = returnedBuilder;
                 } catch (Throwable t) {
                     if (LOGGER.isWarnEnabled()) 
                         LOGGER.warn("Could not weave target method via '{}'. \n"
                                 + "  TargetMethod: {}"
                                 + "  Error reason: {} \n", 
-                                advisorWeaver,
+                                methodWeaver,
                                 MethodUtils.getMethodSignature(targetMethod),
                                 t.getMessage(),
                                 t
@@ -153,478 +117,105 @@ public interface PointcutAdvisorWeaver {
 
 
     /**
-     * Abstract base providing common weaving logic: target method holding, advisor filtering,
-     * and weaving exception handling.
+     * Abstract base providing common logic.
+     *
      */
-    abstract class AbstractBase implements PointcutAdvisorWeaver, Ordered {
+    abstract class AbstractBase implements PointcutAdvisorWeaver {
 
-        private final AopWeaver aopWeaver;
-
-        private final boolean loadedType;
-        private final MethodDescription targetMethod;
-        private final String targetMethodSignature;
-
-        private final List<? extends PointcutAdvisor> pointcutAdvisors;
-
-
-        public AbstractBase(AopWeaver aopWeaver, boolean loadedType, MethodDescription targetMethod, 
-                List<? extends Advisor> advisors) {
-            this.aopWeaver = aopWeaver;
-
-            this.loadedType = loadedType;
-            this.targetMethod = targetMethod;
-            this.targetMethodSignature = targetMethod.toGenericString();
-
-            this.pointcutAdvisors = resolveAdvisors(advisors);
-            if (CollectionUtils.isEmpty(this.pointcutAdvisors))
-                throw new ObjectsException.SkippedObjectCreationException();
-        }
-
-        private List<? extends PointcutAdvisor> resolveAdvisors(List<? extends Advisor> advisors) {
-            List<PointcutAdvisor> candidateAdvisors = new ArrayList<>();
-            for (Advisor advisor : advisors) {
-                if (advisor == null || advisor instanceof PointcutAdvisor == false)
-                    continue;
-
-                PointcutAdvisor pointcutAdvisor = (PointcutAdvisor) advisor;
-                if (isCandidateAdvisor(pointcutAdvisor) == false)
-                    continue;
-
-                candidateAdvisors.add(pointcutAdvisor);
-            }
-
-            return candidateAdvisors;
-        }
-
-        protected abstract boolean isCandidateAdvisor(PointcutAdvisor advisor);
-
-
-        protected WeaverContext getWeaverContext() {
-            return aopWeaver.getWeaverContext();
-        }
-
-        protected boolean isLoadedType() {
-            return loadedType;
-        }
-
-        protected MethodDescription getTargetMethod() {
-            return targetMethod;
-        }
-
-        protected String getTargetMethodSignature() {
-            return targetMethodSignature;
-        }
-
-        protected List<? extends PointcutAdvisor> getPointcutAdvisors() {
-            return pointcutAdvisors;
-        }
-
-
-        /**
+        /** 
          * {@inheritDoc}
          */
         @Override
-        public DynamicType.Builder<?> weave(DynamicType.Builder<?> builder, Object... arguments) {
-            try {
-                return doWeave(builder, arguments);
-            } catch (Exception e) {
-                if (LOGGER.isWarnEnabled()) 
-                    LOGGER.warn("Could not weave method via '{}'. \n"
-                            + "  TargetMethod: {}"
-                            + "  Error reason: {} \n", 
-                            this,
-                            MethodUtils.getMethodSignature(targetMethod),
-                            e.getMessage(),
-                            e
-                    );
+        public DynamicType.Builder<?> weave(DynamicType.Builder<?> builder, AopWeaver aopWeaver, 
+                boolean loadedType, MethodDescription targetMethod, List<? extends Advisor> advisors) {
+            List<? extends PointcutAdvisorHandler> advisorHandlers = aopWeaver.getWeaverContext().getAopContext().getObjectFactory()
+                    .createObjectsImplementing(
+                            PointcutAdvisorHandler.class, false,
+                            aopWeaver, targetMethod, advisors);
+            advisorHandlers = advisorHandlers == null 
+                    ? Collections.emptyList() : advisorHandlers;
 
-                return builder;
-            }
+            OrderComparator.sort(advisorHandlers);
+
+            return doWeave(builder, aopWeaver, loadedType, targetMethod, advisors, advisorHandlers);
         }
 
-        protected abstract DynamicType.Builder<?> doWeave(DynamicType.Builder<?> builder, Object... arguments);
+        protected abstract DynamicType.Builder<?> doWeave(DynamicType.Builder<?> builder, AopWeaver aopWeaver, 
+                boolean loadedType, MethodDescription targetMethod, List<? extends Advisor> advisors, 
+                List<? extends PointcutAdvisorHandler> advisorHandlers);
     }
 
 
     /**
-     * Handles native method interception by defining a renamed native method and replacing
-     * the original method body with a delegating implementation.
+     * Weaves one or more {@link io.gemini.aop.Advisor.PointcutAdvisor} instances into a regular java method.
+     */
+    class RegularMethodWeaver extends AbstractBase {
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        protected DynamicType.Builder<?> doWeave(DynamicType.Builder<?> builder, AopWeaver aopWeaver, 
+                boolean loadedType, MethodDescription targetMethod, List<? extends Advisor> advisors,
+                List<? extends PointcutAdvisorHandler> advisorHandlers) {
+            if (targetMethod.isNative())
+                return builder;
+
+            AsmVisitorWrapper asmVisitorWrapper = null;
+            for (PointcutAdvisorHandler advisorHandler : advisorHandlers) {
+                AsmVisitorWrapper combinedAsmVisitorWrapper = advisorHandler.combine(asmVisitorWrapper);
+                if (combinedAsmVisitorWrapper != null)
+                    asmVisitorWrapper = combinedAsmVisitorWrapper;
+            }
+
+            if (asmVisitorWrapper != null)
+                builder = builder.visit(asmVisitorWrapper);
+
+            return builder;
+        }
+    }
+
+
+    /**
+     * Weaves one or more {@link io.gemini.aop.Advisor.PointcutAdvisor} instances into a native method.
      */
     class NativeMethodWeaver extends AbstractBase {
 
-        public NativeMethodWeaver(AopWeaver aopWeaver, boolean loadedType, MethodDescription targetMethod, 
-                List<? extends Advisor> advisors) {
-            super(aopWeaver, loadedType, targetMethod, advisors);
-        }
-
-        /**
+        /** 
          * {@inheritDoc}
          */
         @Override
-        protected boolean isCandidateAdvisor(PointcutAdvisor advisor) {
-            return false;
-        }
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        protected DynamicType.Builder<?> doWeave(DynamicType.Builder<?> builder, Object... arguments) {
-            if (getTargetMethod().isNative() == false)
+        protected DynamicType.Builder<?> doWeave(DynamicType.Builder<?> builder, AopWeaver aopWeaver, 
+                boolean loadedType, MethodDescription targetMethod, List<? extends Advisor> advisors,
+                List<? extends PointcutAdvisorHandler> advisorHandlers) {
+            if (!targetMethod.isNative())
                 return builder;
-
-            // define renamed native method
-            MethodDescription targetMethod = getTargetMethod();
-
-            String renamedMethodName = getWeaverContext().getNativeMethodPrefix() + targetMethod.getName();
-            Implementation implementation = MethodCall.invoke( named(renamedMethodName) ).withAllArguments();
-
-            return builder
-            // define rename native method
-            .defineMethod( 
-                    renamedMethodName, targetMethod.getReturnType(), targetMethod.getActualModifiers() )
-            .withParameters(
-                    targetMethod.getParameters().asTypeList())
-            .withoutCode()
-            // intercept original method and replace method body
-            .method( is(targetMethod) )
-            .intercept( implementation );
-        }
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        public int getOrder() {
-            return -100;
-        }
-    }
-
-
-    /**
-     * Weaves POJO and AspectJ advice using the framework-generated {@code io.gemini.api.aop.Advice} classes
-     * and the {@link io.gemini.aop.weaver.BootstrapDispatcher} INDY callback mechanism.
-     * Implements {@link AopWeaver.WeavedCodeCallback} to create the {@link io.gemini.aop.weaver.Joinpoints.Descriptor}
-     * on first invocation and cache it for subsequent calls.
-     */
-    class ManagedAdviceWeaver extends AbstractBase implements AopWeaver.WeavedCodeCallback {
-
-        private static final Map<Class<?>, DynamicType.Loaded<?>> BEARKING_CIRCULARITY_ADVICES = new HashMap<>();
-
-
-        private int callbackSlot;
-        private Joinpoints.Descriptor descriptor;
-
-
-        public ManagedAdviceWeaver(AopWeaver aopWeaver, boolean loadedType, MethodDescription targetMethod, 
-                List<? extends Advisor> advisors) {
-            super(aopWeaver, loadedType, targetMethod, advisors);
-
-            callbackSlot = aopWeaver.registerCallback(this);
-        }
-
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        protected boolean isCandidateAdvisor(PointcutAdvisor advisor) {
-            return Managed.class.isAssignableFrom(advisor.getAdviceKind().getClass());
-        }
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        protected DynamicType.Builder<?> doWeave(DynamicType.Builder<?> builder, Object... arguments) {
-            MethodDescription targetMethod = getTargetMethod();
-
-            WithCustomMapping withCustomMapping = Advice.withCustomMapping().bind( 
-                    DescriptorOffset.create(
-                            targetMethod, Integer.valueOf(callbackSlot) ) );
-            Advice frameworkAdvice = toAdvice(
-                    withCustomMapping, 
-                    getWeaverContext().getFrameworkAdviceClass(targetMethod));
-
-            // 1.weave regular method
-            if (targetMethod.isNative() == false)
-                return builder.visit( 
-                        frameworkAdvice.on( is(targetMethod) ) 
-                );
-
-            // 2.weave native method
-            if (isLoadedType() == true) {
+            else if (loadedType) {
                 LOGGER.warn("Could not retransform type '{}' loaded by ClassLoader '{}' in AopWeaver, \n"
                         + "  NativeTargetMethod: {}",
-                        getTargetMethod().getDeclaringType().getTypeName(),
-                        getTargetMethodSignature());
+                        targetMethod.getDeclaringType().getTypeName(),
+                        targetMethod.toGenericString());
                 return builder;
             }
 
-            return builder
-            .method( is(targetMethod) )
-            .intercept( frameworkAdvice )
-            ;
-        }
-
-        private Advice toAdvice(WithCustomMapping withCustomMapping, Class<?> frameworkAdviceClass) {
-            if (isBreakCircularity() == false)
-                return withCustomMapping.to(frameworkAdviceClass);
-
-            DynamicType.Loaded<?> loadedAdviceClass = BEARKING_CIRCULARITY_ADVICES.computeIfAbsent(
-                    frameworkAdviceClass, 
-                    clazz -> CircularityBreakerCodeGenerator.INSTANCE.wrapMethodImplementation(clazz)
-            );
-            return withCustomMapping.to(loadedAdviceClass.getLoaded(), loadedAdviceClass);
-        }
-
-        private boolean isBreakCircularity() {
-            for (PointcutAdvisor pointcutAdvisor : getPointcutAdvisors()) {
-                if (pointcutAdvisor.isBreakCircularity() == true)
-                    return true;
-            }
-            return false;
-        }
-
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        public Object callback(Lookup targetLookup, String methodName, MethodType mothodType, Object... arguments) {
-            int callbackSlot = (int) arguments[0];
-            if (callbackSlot != this.callbackSlot)
-                return null;
-
-            Joinpoints.Descriptor descriptor = doCreateJoinpointDescriptor(targetLookup);
-            boolean isCallSite = arguments[1].equals(DescriptorOffset.CALLSITE_DESCRIPTOR_FLAG);
-            if (isCallSite == false)
-                return descriptor;
-
-            MethodHandle constant = MethodHandles.constant(Object.class, descriptor);
-            return new ConstantCallSite( constant );
-        }
-
-        protected Joinpoints.Descriptor doCreateJoinpointDescriptor(Lookup targetLookup) {
-            if (this.descriptor != null)
-                return this.descriptor;
-
-            Class<?> targetClass = targetLookup.lookupClass();
-            ClassLoader targetClassLoader = targetClass.getClassLoader();
-
-            ClassLoader existingClassLoader = ThreadContext.getContextClassLoader();
-            MethodDescription targetMethod = getTargetMethod();
-            String accessibleName = getTargetMethodSignature();
-            try {
-                ThreadContext.setContextClassLoader(targetClassLoader);  // set targetClassLoader
-
-                List<? extends Advisor> advisors = this.getPointcutAdvisors();
-
-                if (CollectionUtils.isEmpty(advisors))
-                    return null;
-
-                //
-                AccessibleObject accessibleObject = null;
-                if (targetMethod.isTypeInitializer() == false) {
-                    accessibleObject = ClassUtils.getAccessibleObject(targetClass, targetMethod);
-                }
-
-                return (this.descriptor = new Joinpoints.Descriptor(targetLookup, accessibleName, accessibleObject, advisors));
-            } catch (Throwable t) {
-                if (LOGGER.isWarnEnabled())
-                    LOGGER.warn("Could not create joinpoint descriptor for type '{}' loaded by ClassLoader '{}'. \n"
-                            + "  TargetMethod: {}"
-                            + "  Error reason: {} \n", 
-                            targetMethod.getDeclaringType().getTypeName(), targetClassLoader, 
-                            accessibleName, 
-                            t.getMessage(),
-                            t
-                    );
-
-                Throwables.throwIfRequired(t);
-                return null;
-            } finally {
-                ThreadContext.setContextClassLoader(existingClassLoader);
-            }
-        }
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        public int getOrder() {
-            return 0;
-        }
-    }
-
-
-    /**
-     * Weaves raw ByteBuddy {@code net.bytebuddy.asm.Advice} classes directly onto the target method,
-     * using the INDY bootstrap mechanism to route callbacks to the correct {@code ByteBuddyAdviceWeaver}.
-     */
-    class ByteBuddyAdviceWeaver extends AbstractBase implements AopWeaver.WeavedCodeCallback {
-
-        private static final Map<Class<?>, DynamicType.Loaded<?>> BEARKING_CIRCULARITY_ADVICES = new HashMap<>();
-
-        private int callbackSlot;
-
-
-        public ByteBuddyAdviceWeaver(AopWeaver aopWeaver, boolean loadedType, MethodDescription targetMethod, 
-                List<? extends Advisor> advisors) {
-            super(aopWeaver, loadedType, targetMethod, advisors);
-
-            this.callbackSlot = aopWeaver.registerCallback(this);
-        }
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        protected boolean isCandidateAdvisor(PointcutAdvisor advisor) {
-            return ByteBuddyAdviceKind.class.isAssignableFrom(advisor.getAdviceKind().getClass());
-        }
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        protected DynamicType.Builder<?> doWeave(DynamicType.Builder<?> builder, Object... arguments) {
-            WithCustomMapping withCustomMapping = Advice.withCustomMapping()
-            .with(new Advice.AssignReturned.Factory())
-            .bootstrap(
-                    AopWeaver.BOOTSTRAP_DISPATCHER_CALLBACK_METHOD,
-                    new DefaultBootstrapArgumentResolverFactory(this.callbackSlot)
-            );
-
-            MethodDescription targetMethod = getTargetMethod();
-            List<? extends PointcutAdvisor> advisors = this.getPointcutAdvisors();
-            List<MethodVisitorWrapper> methodVisitorWrappers = new ArrayList<>(advisors.size() + 1);
-
-            builder = builder.visit(
-                    new AsmVisitorWrapper.ForDeclaredMethods().invokable(
-                            is(getTargetMethod()), CircularityBreakerCodeGenerator.INSTANCE.postProcessTargetMethod(callbackSlot)
-                    )
-            );
-
-
-            // 1.weave regular method
-            if (targetMethod.isNative() == false) {
-                for (PointcutAdvisor advisor : advisors) {
-                    Advice advice = toAdvice(withCustomMapping, advisor);
-                    methodVisitorWrappers.add(advice);
-                }
-
-                return builder.visit( 
-                        new AsmVisitorWrapper.ForDeclaredMethods().invokable(
-                                is(targetMethod), methodVisitorWrappers
-                        ) 
-                );
-            }
-
-
-            // 2.weave native method
-            if (isLoadedType() == true) {
-                LOGGER.warn("Could not retransform type '{}' loaded by ClassLoader '{}' in AopWeaver, \n"
-                        + "  NativeTargetMethod: {}",
-                        getTargetMethod().getDeclaringType().getTypeName(),
-                        getTargetMethodSignature());
-                return builder;
-            }
-
-            // TODO: reverse advice?
+            AsmVisitorWrapper asmVisitorWrapper = null;
             Implementation implementation = null;
-            for (PointcutAdvisor advisor : advisors) {
-                Advice advice = toAdvice(withCustomMapping, advisor)
-                        .withAssigner(Assigner.DEFAULT)
-                        .withExceptionHandler(Advice.ExceptionHandler.Default.SUPPRESSING);
+            for (PointcutAdvisorHandler advisorHandler : advisorHandlers) {
+                AsmVisitorWrapper visitorWrapper = advisorHandler.combine(asmVisitorWrapper);
+                if (visitorWrapper != null)
+                    asmVisitorWrapper = visitorWrapper;
 
-                implementation = implementation == null
-                        ? implementation
-                        : advice.wrap(implementation);
+                Implementation combinedImplementation = advisorHandler.combine(implementation);
+                if(combinedImplementation != null)
+                    implementation = combinedImplementation;
             }
 
-            return builder
-            .method( is(targetMethod) )
-            .intercept( implementation );
-        }
+            if (asmVisitorWrapper != null)
+                builder = builder.visit(asmVisitorWrapper);
+            if (implementation != null)
+                builder = builder.invokable( is(targetMethod) ).intercept(implementation);
 
-        private Advice toAdvice(WithCustomMapping withCustomMapping, PointcutAdvisor advisor) {
-            Class<?> adviceClass = advisor.getAdviceClass();
-            ClassLoader classLoader = adviceClass.getClassLoader();
-
-            TypePool typePool = getWeaverContext().getAopContext().getTypePoolFactory().createTypePool(classLoader, null);
-            TypeDescription adviceType = typePool.describe(adviceClass.getName()).resolve();
-            ClassFileLocator classFileLocator = ClassFileLocator.ForClassLoader.of(classLoader);
-
-            if (advisor.isBreakCircularity() == false)
-                return withCustomMapping.to(adviceType, classFileLocator);
-            else {
-                DynamicType.Loaded<?> loadedAdviceClass = BEARKING_CIRCULARITY_ADVICES.computeIfAbsent(
-                        adviceClass, 
-                        clazz -> CircularityBreakerCodeGenerator.INSTANCE.wrapMethodCall(adviceClass, adviceType, classFileLocator)
-                );
-                return withCustomMapping.to(loadedAdviceClass.getTypeDescription(), loadedAdviceClass);
-            }
-        }
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        public Object callback(Lookup targetLookup, String methodName, MethodType mothodType, Object... arguments) {
-            ClassLoader existingClassLoader = ThreadContext.getContextClassLoader();
-            try {
-                ClassLoader targetClassLoader = targetLookup.lookupClass().getClassLoader();
-                ThreadContext.setContextClassLoader(targetClassLoader);   // set targetClassLoader
-
-                MethodHandle methodHandle = getMethodHandle(targetLookup, (String) arguments[1], methodName, mothodType);
-                if (methodHandle == null) {
-                    return null;
-                }
-
-                return new ConstantCallSite(methodHandle);
-            } finally {
-                ThreadContext.setContextClassLoader(existingClassLoader);
-            }
-        }
-
-        private MethodHandle getMethodHandle(Lookup targetLookup, String adviceTypeName, 
-                String adviceMethodName, MethodType adviceMethodType) {
-            Class<?> byteBuddyAdvice = null;
-            for (PointcutAdvisor advisor : getPointcutAdvisors()) {
-                if ( (byteBuddyAdvice = advisor.getAdviceClass()).getName().equals(adviceTypeName))
-                    break;
-            }
-            if (byteBuddyAdvice == null)
-                return null;    //throw?
-
-            // use lookup of instrumented type to avoid LinkageError described in https://github.com/elastic/apm-agent-java/issues/1450
-            try {
-                MethodHandleLookup lookup = MethodHandleLookup.select(byteBuddyAdvice, targetLookup);
-                return lookup.findStatic(byteBuddyAdvice, adviceMethodName, adviceMethodType);
-            } catch (Exception e) {
-                if (LOGGER.isWarnEnabled())
-                    LOGGER.warn("Could not find static advice method. \n"
-                            + "  TargetMethod: {}"
-                            + "  AdviceMethod: {} {}"
-                            + "  Error reason: {} \n", 
-                            getTargetMethodSignature(),
-                            adviceMethodName, adviceMethodType,
-                            e.getMessage(),
-                            e
-                    );
-            }
-
-            return null;
-        }
-
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        public int getOrder() {
-            return 100;
+            return builder;
         }
     }
 }
