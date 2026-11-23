@@ -492,4 +492,78 @@ public abstract class ClassUtils {
         return className.replace(PACKAGE_SEPARATOR, RESOURCE_SPERATOR) 
                 + (appendClassFileExt ? CLASS_FILE_EXTENSION : "");
     }
+
+
+    /**
+     * Detects type variables exist in the given generic type.
+     * 
+     * @param type
+     * @return contain type variable or not
+     */
+    public static boolean containsTypeVariable(Generic type) {
+        return type.accept(TypeVariableVisitor.INSTANCE);
+    }
+
+
+    /**
+     * A visitor that detects type variable.
+     *
+     */
+    static enum TypeVariableVisitor implements Generic.Visitor<Boolean> {
+
+        INSTANCE;
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public Boolean onGenericArray(Generic genericArray) {
+            return genericArray.getComponentType().accept(this);
+        }
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public Boolean onWildcard(Generic wildcard) {
+            for (Generic upperBound : wildcard.getUpperBounds())
+                if (upperBound.accept(this))
+                    return true;
+
+            for (Generic lowerBound : wildcard.getLowerBounds())
+                if (lowerBound.accept(this))
+                    return true;
+
+            return false;
+        }
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public Boolean onParameterizedType(Generic parameterizedType) {
+            for (Generic typeArgument : parameterizedType.getTypeArguments()) {
+                if (typeArgument.accept(this))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public Boolean onTypeVariable(Generic typeVariable) {
+            return true;
+        }
+
+        /** 
+         * {@inheritDoc}
+         */
+        @Override
+        public Boolean onNonGenericType(Generic typeDescription) {
+            return false;
+        }
+    }
 }
