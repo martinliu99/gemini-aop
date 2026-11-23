@@ -15,6 +15,11 @@
  */
 package io.gemini.aop.factory.support;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 
 import org.slf4j.Logger;
@@ -23,11 +28,17 @@ import org.slf4j.LoggerFactory;
 import io.gemini.aop.factory.support.AdviceSpec.AspectJAdviceSpec;
 import io.gemini.aop.factory.support.AdviceSpec.ByteBuddyAdviceSpec;
 import io.gemini.aop.factory.support.AdviceSpec.PojoAdviceSpec;
-import io.gemini.aspectj.weaver.PointcutParameter.NamedPointcutParameter;
+import io.gemini.api.aop.Joinpoint.MutableJoinpoint;
+import io.gemini.aspectj.weaver.PointcutParameter.ParameterCategory;
 import io.gemini.core.util.ClassUtils;
 import io.gemini.core.util.MethodUtils;
-import io.gemini.core.util.Pair;
+import net.bytebuddy.asm.Advice;
+import net.bytebuddy.asm.Advice.OnMethodEnter;
+import net.bytebuddy.asm.Advice.OnMethodExit;
+import net.bytebuddy.description.annotation.AnnotationDescription;
+import net.bytebuddy.description.annotation.AnnotationList;
 import net.bytebuddy.description.method.MethodDescription;
+import net.bytebuddy.description.method.ParameterDescription;
 import net.bytebuddy.description.method.ParameterList;
 import net.bytebuddy.description.type.TypeDefinition;
 import net.bytebuddy.description.type.TypeDescription;
@@ -35,6 +46,12 @@ import net.bytebuddy.description.type.TypeDescription.Generic;
 import net.bytebuddy.description.type.TypeList;
 import net.bytebuddy.matcher.ElementMatcher;
 
+/**
+ * Matches target method with advice method, including bound or assigned target object, 
+ * arguments, return value or thrown exception.
+ *
+ * @author   martin.liu
+ */
 public interface AdviceMatcher extends ElementMatcher<MethodDescription> {
 
     /** 
@@ -44,243 +61,225 @@ public interface AdviceMatcher extends ElementMatcher<MethodDescription> {
     boolean matches(MethodDescription targetMethod);
 
 
+    /**
+     * Abstract base providing common logic for advice method validation: type visbility, 
+     * type equality, or type assignment.
+     */
     abstract class AbstractBase<A extends AdviceSpec> implements AdviceMatcher {
 
         protected static final Logger LOGGER = LoggerFactory.getLogger(AdviceMatcher.class);
 
-        private static final Generic RUNTIME_EXCEPTION = TypeDefinition.Sort.describe(RuntimeException.class);
+        protected static final Generic RUNTIME_EXCEPTION = TypeDescription.ForLoadedType.of(RuntimeException.class).asGenericType();
 
 
-        protected boolean matcheParameterizedArguments(MethodDescription adviceMethod, MethodDescription targetMethod) {
-            // verify returning and throwing type arguments of joinpoint with target method
-            Generic targetReturningType = targetMethod.isConstructor() 
-                    ? targetMethod.getDeclaringType().asGenericType() : targetMethod.getReturnType();
+        private final A adviceSpec;
 
-            Pair<Generic, Generic> joinpointParamTypeArguments = resolveJoinpointParamTypeArguments(adviceMethod);
-            if (joinpointParamTypeArguments == null)
+
+        public AbstractBase(A adviceSpec) {
+            this.adviceSpec = adviceSpec;
+        }
+
+
+        protected A getAdviceSpec() {
+            return adviceSpec;
+        }
+
+
+        /**
+         * Tests the adviceType is visible to the referred target Type.
+         * @param operatedElement  the element of advice method
+         * @param adviceType  the advice type defining advice method
+         * @param ignoreAdviceType  ignore advice type or not
+         * @param adviceMethod  the advice method
+         * @param targetMethod the target method
+         * @param referredType  the referred type
+         * 
+         * @return visible or not
+         */
+        protected boolean isTypeVisible(String operatedElement, TypeDescription adviceType, boolean ignoreAdviceType, 
+                MethodDescription adviceMethod, MethodDescription targetMethod, TypeDescription referredType) {
+            if (ClassUtils.isVisibleTo(referredType, adviceType))
                 return true;
 
-            // verify returning type argument
-            Generic parameterizedReturningType = joinpointParamTypeArguments.getLeft();
-            if (parameterizedReturningType != null 
-                    && matchesReturningType(true, adviceMethod, parameterizedReturningType, targetMethod, targetReturningType) == false) {
-                return false;
+            if (LOGGER.isWarnEnabled())
+                LOGGER.warn("Ignored {} ({}) referring to invisible type (public or protected in the same package). \n"
+                        + "  DeclaringType: {} \n"
+                        + "  AdviceMethod: {} \n"
+                        + "  TargetMethod: {} \n"
+                        + "    ReferredType: {} {} \n",
+                        ignoreAdviceType ? "advice class with method" : "advice method", operatedElement, 
+                        adviceType.getTypeName(),
+                        MethodUtils.getMethodSignature(adviceMethod),
+                        referredType.getVisibility(), referredType.getTypeName()
+                );
+
+            return false;
+        }
+
+        /**
+         * Tests the adviceMethodElementType is equal to the targetMethodElementType.
+         * @param operatedElement  the element of advice method
+         * @param adviceType  the advice type defining advice method
+         * @param ignoreAdviceType  ignore advice type or not
+         * @param adviceMethod  the advice method
+         * @param adviceMethodElementType  the element type of advice method
+         * @param targetMethod  the target method
+         * @param targetMethodElementType  the element type of target method
+         * @return equals or not
+         */
+        protected boolean isTypeEquals(String operatedElement, TypeDefinition adviceType, boolean ignoreAdviceType, 
+                MethodDescription adviceMethod, Generic adviceMethodElementType, 
+                MethodDescription targetMethod, Generic targetMethodElementType) {
+            if (ClassUtils.containsTypeVariable(targetMethodElementType)
+                    ? ClassUtils.equals(adviceMethodElementType.asErasure(), targetMethodElementType.asErasure())
+                    : ClassUtils.equals(adviceMethodElementType, targetMethodElementType))
+                return true;
+
+            if (LOGGER.isWarnEnabled())
+                LOGGER.warn("Ignored {} ({}) referring to unequal type. \n" 
+                        + "  DeclaringType: {} \n"
+                        + "  AdviceMethod: {} \n"
+                        + "    AssignedType: {} \n"
+                        + "  TargetMethod: {} \n"
+                        + "    SourceType: {} \n",
+                        ignoreAdviceType ? "advice class with method" : "advice method", operatedElement,
+                        adviceType.getTypeName(),
+                        MethodUtils.getMethodSignature(adviceMethod), adviceMethodElementType.getTypeName(), 
+                        MethodUtils.getMethodSignature(targetMethod), targetMethodElementType.getTypeName()
+                );
+
+            return false;
+        }
+
+        /**
+         * Tests the adviceMethodElementType is assignment from the collection of targetMethodElementTypes.
+         * @param operatedElement  the element of advice method
+         * @param ignoreAdviceType  ignore advice type or method
+         * @param isBindingOperation  binding or assigning operation
+         * @param adviceMethod  the advice method
+         * @param adviceMethodElementType  the element type of advice method
+         * @param targetMethod  the target method
+         * @param targetMethodMatchingTypes  collection of element type of target method
+         * @return assignable or not
+         */
+        protected boolean isTypeAssignable(String operatedElement, boolean ignoreAdviceType, boolean isBindingOperation, 
+                MethodDescription adviceMethod, List<Generic> adviceMethodMatchingTypes, 
+                MethodDescription targetMethod, List<Generic> targetMethodMatchingTypes) {
+            List<Generic> lhsTypes = isBindingOperation ? adviceMethodMatchingTypes : targetMethodMatchingTypes;
+            List<Generic> rhsTypes = isBindingOperation ? targetMethodMatchingTypes : adviceMethodMatchingTypes;
+            boolean anyMatched = false;
+            for (Generic lhsType : lhsTypes) {
+                lhsType = ClassUtils.containsTypeVariable(lhsType) ? lhsType.asRawType() : lhsType;
+
+                boolean allMatched = true;
+                for (Generic rhsType : rhsTypes) {
+                    if (!ClassUtils.isAssignableFrom(lhsType, rhsType, false)) {
+                        allMatched = false;
+                        break;
+                    }
+                }
+
+                if (allMatched)
+                    anyMatched = true;
             }
 
-            // verify throwing type argument
-            Generic parameterizedThrowingType = joinpointParamTypeArguments.getRight();
-            if (parameterizedThrowingType != null
-                    && matchesThrowingType(true, adviceMethod, parameterizedThrowingType, targetMethod) == false) {
-                return false;
+            if (anyMatched)
+                return true;
+
+            if (LOGGER.isWarnEnabled())
+                LOGGER.warn("Ignored {} ({} {}) referring to unassignable type. \n" 
+                        + "  {}: {} \n"
+                        + "    {}{}: {} \n"
+                        + "  {}: {} \n"
+                        + "    Source{}: {} \n",
+                        ignoreAdviceType ? "advice class with method" : "advice method", 
+                        isBindingOperation ? "Binding" : "Assigning", operatedElement,
+                        isBindingOperation ? "AdviceMethod" : "TargetMethod", MethodUtils.getMethodSignature(adviceMethod), 
+                        isBindingOperation ? "Bound" : "Assigned", isBindingOperation || lhsTypes.size() == 1 ? "Type" : "Types", lhsTypes,
+                        isBindingOperation ? "TargetMethod" : "AdviceMethod",  MethodUtils.getMethodSignature(targetMethod), 
+                        isBindingOperation && rhsTypes.size() > 1 ? "Types" : "Type", rhsTypes
+                );
+
+            return false;
+        }
+
+        /**
+         * Matches parameterizedReturnType and parameterizedExceptionType type with target class loader at class loading time.
+         * 
+         * @param adviceType  advice type defining advice method
+         * @param adviceMethod  advice method
+         * @param parameterizedReturnType  return type defined in parameterized {@link MutableJoinpoint} argument 
+         * @param parameterizedExceptionType  exception type defined in parameterized {@link MutableJoinpoint} argument
+         * @param targetMethod  target method
+         * 
+         * @return matched or not
+         */
+        protected boolean matcheParameterizedJoinpoint(TypeDescription adviceType, MethodDescription adviceMethod, 
+                Generic parameterizedReturnType, Generic parameterizedExceptionType, MethodDescription targetMethod) {
+            // verify return and throw type arguments of joinpoint with target method
+            if (parameterizedReturnType != null) {
+                String operatedElement = "ParameterizedReturnType";
+
+                if (!isTypeVisible(operatedElement, adviceType, false, 
+                        adviceMethod, targetMethod, parameterizedReturnType.asErasure()))
+                    return false;
+
+                Generic targetReturnType = targetMethod.getReturnType();
+                if (!isTypeEquals(operatedElement, adviceType, false, 
+                        adviceMethod, parameterizedReturnType, targetMethod, targetReturnType))
+                    return false;
+            }
+
+            if (parameterizedExceptionType != null) {
+                String operatedElement = "ParameterizedExceptionType";
+
+                if (!isTypeVisible(operatedElement, adviceType, false, 
+                        adviceMethod, targetMethod, parameterizedExceptionType.asErasure()))
+                    return false;
+
+                TypeList.Generic exceptionTypes = targetMethod.getExceptionTypes();
+                if (!isTypeAssignable(operatedElement, false, true, 
+                        adviceMethod, Collections.singletonList(parameterizedExceptionType), 
+                        targetMethod, exceptionTypes.size() == 0 ? Collections.singletonList(RUNTIME_EXCEPTION) : exceptionTypes))
+                    return false;
             }
 
             return true;
         }
 
-        protected Pair<Generic, Generic> resolveJoinpointParamTypeArguments(MethodDescription adviceMethod) {
-            if (adviceMethod == null)
-                return null;
-
-            ParameterList<?> parameters = adviceMethod.getParameters();
-            if (parameters.size() == 0)
-                return null;
-
-            Generic joinpointType = parameters.get(0).getType();
-            if (TypeDefinition.Sort.PARAMETERIZED != joinpointType.getSort() ) {
-                return null;
-            }
-
-            TypeList.Generic typeVariables = joinpointType.getTypeArguments();
-
-            Generic returningType = typeVariables.asRawTypes().get(0);
-            if (TypeDefinition.Sort.NON_GENERIC != returningType.getSort() && TypeDefinition.Sort.PARAMETERIZED != returningType.getSort()) {
-                if (LOGGER.isWarnEnabled())
-                    LOGGER.warn("Ignored advice method with Generic or WildcardType ParameterizedReturning of MutableJoinpoint. \n"
-                            + "  DeclaringType: {} \n"
-                            + "  AdviceMethod: {} \n"
-                            + "    ParameterizedReturning: {} \n",
-                            adviceMethod.getDeclaringType().getTypeName(),
-                            MethodUtils.getMethodSignature(adviceMethod),
-                            returningType.asErasure().getDescriptor()
-                    );
-
-                return null;
-            }
-
-            Generic throwingType = typeVariables.get(1);
-            if (TypeDefinition.Sort.NON_GENERIC != throwingType.getSort() && TypeDefinition.Sort.PARAMETERIZED != throwingType.getSort()) {
-                if (LOGGER.isWarnEnabled())
-                    LOGGER.warn("Ignored advice method with Generic or WildcardType ParameterizedThrowing of MutableJoinpoint. \n"
-                            + "  DeclaringType: {} \n"
-                            + "  AdviceMethod: {} \n"
-                            + "    ParameterizedThrowing: {} \n",
-                            adviceMethod.getDeclaringType().getTypeName(),
-                            MethodUtils.getMethodSignature(adviceMethod),
-                            returningType.asErasure().getDescriptor()
-                    );
-
-                return null;
-            }
-
-            return new Pair<>(returningType, throwingType);
-        }
-
-        /**
-         * Matches returning type with target class loader at class loading time.
-         * 
-         * @param parameterizedReturningType returning type defined via parameterized argument or advice returning argument
-         * @param adviceMethod               advice method annotated with AspectJ annotation
-         * @param adviceReturningType        returning type defined by advice method
-         * @param targetMethod               target method in matching
-         * @param targetReturningType        returning type of target method
-         * @return matched or not
-         */
-        protected boolean matchesReturningType(boolean parameterizedReturningType, 
-                MethodDescription adviceMethod, Generic adviceReturningType, 
-                MethodDescription targetMethod, Generic targetReturningType) {
-            targetReturningType = TypeDefinition.Sort.NON_GENERIC == adviceReturningType.getSort() 
-                    || TypeDefinition.Sort.GENERIC_ARRAY == adviceReturningType.getSort()
-                    ? targetReturningType.asRawType() : targetReturningType;
-            String matchingReturningTypeMsg = parameterizedReturningType ? "ParameterizedReturning" : "AdviceReturning";
-
-            // verify returning type visibility
-            if (ClassUtils.isVisibleTo(adviceReturningType.asErasure(), adviceMethod.getDeclaringType().asErasure()) == false) {
-                if (LOGGER.isWarnEnabled()) {
-                    LOGGER.warn("Ignored advice method referring to non public and non protected in the same package {} type under target ClassLoader. \n"
-                            + "  DeclaringType: {} \n"
-                            + "  AdviceMethod: {} \n"
-                            + "    {}: {} {} \n",
-                            matchingReturningTypeMsg,
-                            adviceMethod.getDeclaringType().getTypeName(),
-                            MethodUtils.getMethodSignature(adviceMethod),
-                            matchingReturningTypeMsg, adviceReturningType.getVisibility(), adviceReturningType
-                    );
-                }
-
-                return false;
-            }
-
-            // verify returning type assignment
-            if (parameterizedReturningType == true) {
-                if (ClassUtils.equals(adviceReturningType, targetReturningType) == false) {
-                    if (LOGGER.isWarnEnabled())
-                        LOGGER.warn("Ignored advice method with {} is different to target method's returning type. \n" 
-                                + "  DeclaringType: {} \n"
-                                + "  AdviceMethod: {} \n"
-                                + "    {}: {} \n"
-                                + "  TargetMethod: {} \n"
-                                + "    ActualReturning: {} \n",
-                                matchingReturningTypeMsg,
-                                adviceMethod.getDeclaringType().getTypeName(),
-                                MethodUtils.getMethodSignature(adviceMethod),
-                                matchingReturningTypeMsg, adviceReturningType, 
-                                MethodUtils.getMethodSignature(targetMethod),
-                                targetReturningType
-                        );
-
-                    return false;
-                }
-            } else {
-                if (ClassUtils.isAssignableFrom(adviceReturningType, targetReturningType) == false) {
-                    if (LOGGER.isWarnEnabled())
-                        LOGGER.warn("Ignored advice method with {} is unassignable from target method's returning type. \n" 
-                                + "  DeclaringType: {} \n"
-                                + "  AdviceMethod: {} \n"
-                                + "    {}: {} \n"
-                                + "  TargetMethod: {} \n"
-                                + "    ActualReturning: {} \n",
-                                matchingReturningTypeMsg, 
-                                adviceMethod.getDeclaringType().getTypeName(),
-                                MethodUtils.getMethodSignature(adviceMethod),
-                                matchingReturningTypeMsg, adviceReturningType, 
-                                MethodUtils.getMethodSignature(targetMethod),
-                                targetReturningType
-                        );
-
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-
-        /**
-         * Matches throwing type with target class loader at class loading time.
-         * 
-         * @param parameterizedThrowingType  throwing type defined via parameterized argument or advice throwing argument
-         * @param adviceMethod               advice method annotated with AspectJ annotation
-         * @param adviceThrowingType         throwing type defined by advice method
-         * @param targetMethod               target method in matching
-         * @return matched or not
-         */
-        protected boolean matchesThrowingType(boolean parameterizedThrowingType, 
-                MethodDescription adviceMethod, Generic adviceThrowingType, MethodDescription targetMethod) {
-            String matchingThrowingTypeMsg = parameterizedThrowingType ? "ParameterizedThrowing" : "AdviceThrowing";
-            TypeDefinition declaringType = adviceMethod.getDeclaringType();
-
-            // verify throwing type visibility
-            if (ClassUtils.isVisibleTo(adviceThrowingType.asErasure(), declaringType.asErasure()) == false) {
-                if (LOGGER.isWarnEnabled())
-                    LOGGER.warn("Ignored advice method referring to non public or non protected in the same package {} type under target ClassLoader. \n"
-                            + "  DeclaringType: {} \n"
-                            + "  AdviceMethod: {} \n"
-                            + "    {}: {} {} \n",
-                            matchingThrowingTypeMsg,
-                            declaringType.getTypeName(),
-                            MethodUtils.getMethodSignature(adviceMethod),
-                            matchingThrowingTypeMsg, adviceThrowingType.getVisibility(), adviceThrowingType
-                    );
-
-                return false;
-            }
-
-            // verify throwing type assignment
-            TypeList.Generic exceptionTypes = targetMethod.getExceptionTypes();
-            if (exceptionTypes.size() == 0) {
-                if (ClassUtils.equals(adviceThrowingType, RUNTIME_EXCEPTION) == false) {
-                    if (LOGGER.isWarnEnabled())
-                        LOGGER.warn("Ignored advice method with non RuntimeException throwing type. \n" 
-                                + "  DeclaringType: {} \n"
-                                + "  AdviceMethod: {} \n"
-                                + "    {}: {} \n"
-                                + "  TargetMethod: {} \n"
-                                + "    ActualThrowing: RuntimeException \n",
-                                declaringType.getTypeName(),
-                                MethodUtils.getMethodSignature(adviceMethod),
-                                matchingThrowingTypeMsg, adviceThrowingType, 
-                                MethodUtils.getMethodSignature(targetMethod)
-                        );
-
-                    return false;
-                }
+        protected boolean matcheMutableJoinpoint(TypeDescription adviceType, MethodDescription adviceMethod, 
+                Generic mutableJoinpointType, MethodDescription targetMethod) {
+            if (mutableJoinpointType == null)
                 return true;
+
+            Generic parameterizedReturnType = mutableJoinpointType.getTypeArguments().get(0);
+            // verify return and throw type arguments of joinpoint with target method
+            if (parameterizedReturnType != null) {
+                String operatedElement = "ParameterizedReturnType";
+
+                if (!isTypeVisible(operatedElement, adviceType, false, 
+                        adviceMethod, targetMethod, parameterizedReturnType.asErasure()))
+                    return false;
+
+                Generic targetReturnType = targetMethod.getReturnType();
+                if (!isTypeEquals(operatedElement, adviceType, false, 
+                        adviceMethod, parameterizedReturnType, targetMethod, targetReturnType))
+                    return false;
             }
 
-            boolean matched = true;
-            for (Generic exceptionType : exceptionTypes) {
-                if (ClassUtils.isAssignableFrom(adviceThrowingType, exceptionType) == false) {
-                    matched = false;
-                    break;
-                }
-            }
+            Generic parameterizedExceptionType = mutableJoinpointType.getTypeArguments().get(1);
+            if (parameterizedExceptionType != null) {
+                String operatedElement = "ParameterizedExceptionType";
 
-            if (matched == false) {
-                if (LOGGER.isWarnEnabled())
-                    LOGGER.warn("Ignored advice method with throwing type is unassignable from target method's all throwing types. \n"
-                            + "  DeclaringType: {} \n"
-                            + "  AdviceMethod: {} \n"
-                            + "    {}: {} \n"
-                            + "  TargetMethod: {} \n"
-                            + "    ActualThrowing: {} \n",
-                            declaringType.getTypeName(),
-                            MethodUtils.getMethodSignature(adviceMethod),
-                            matchingThrowingTypeMsg, adviceThrowingType, 
-                            MethodUtils.getMethodSignature(targetMethod),
-                            exceptionTypes
-                    );
+                if (!isTypeVisible(operatedElement, adviceType, false, 
+                        adviceMethod, targetMethod, parameterizedExceptionType.asErasure()))
+                    return false;
 
-                return false;
+                TypeList.Generic exceptionTypes = targetMethod.getExceptionTypes();
+                if (!isTypeAssignable(operatedElement, false, true, 
+                        adviceMethod, Collections.singletonList(parameterizedExceptionType), 
+                        targetMethod, exceptionTypes.size() == 0 ? Collections.singletonList(RUNTIME_EXCEPTION) : exceptionTypes))
+                    return false;
             }
 
             return true;
@@ -288,13 +287,11 @@ public interface AdviceMatcher extends ElementMatcher<MethodDescription> {
     }
 
 
-    class PojoAdviceMatcher extends AbstractBase<PojoAdviceSpec> {
-
-        private final PojoAdviceSpec adviceSpec;
+    class PojoAdviceMatcher extends AbstractBase<PojoAdviceSpec.Loaded> {
 
 
-        protected PojoAdviceMatcher(PojoAdviceSpec adviceSpec) {
-            this.adviceSpec = adviceSpec;
+        public PojoAdviceMatcher(PojoAdviceSpec.Loaded adviceSpec) {
+            super(adviceSpec);
         }
 
         /**
@@ -302,20 +299,19 @@ public interface AdviceMatcher extends ElementMatcher<MethodDescription> {
          */
         @Override
         public boolean matches(MethodDescription targetMethod) {
-            // verify returning and throwing type arguments of joinpoint with target method
-            return matcheParameterizedArguments(adviceSpec.getAdviceMethod(), targetMethod);
+            // verify return and throw type arguments of joinpoint with target method
+            PojoAdviceSpec.Loaded adviceSpec = getAdviceSpec();
+            return matcheMutableJoinpoint(adviceSpec.getDeclaringType(), adviceSpec.getAdviceMethod(), adviceSpec.getMutableJoinpointType(), targetMethod);
         }
     }
 
 
-    class AspectJAdviceMatcher extends AbstractBase<AspectJAdviceSpec> {
+    class AspectJAdviceMatcher extends AbstractBase<AspectJAdviceSpec.Loaded> {
 
-        private final AspectJAdviceSpec adviceSpec;
-
-
-        protected AspectJAdviceMatcher(AspectJAdviceSpec adviceSpec) {
-            this.adviceSpec = adviceSpec;
+        protected AspectJAdviceMatcher(AspectJAdviceSpec.Loaded adviceSpec) {
+            super(adviceSpec);
         }
+
 
         /**
          * {@inheritDoc}
@@ -325,74 +321,66 @@ public interface AdviceMatcher extends ElementMatcher<MethodDescription> {
          */
         @Override
         public boolean matches(MethodDescription targetMethod) {
-            // 1.verify returning and throwing type arguments of joinpoint with target method
-            MethodDescription adviceMethod = adviceSpec.getAdviceMethod();
-            if (matcheParameterizedArguments(adviceMethod, targetMethod) == false)
+            // 1.verify return and throw type arguments of joinpoint with target method
+            AspectJAdviceSpec.Loaded adviceSpec = getAdviceSpec();
+            if (!matcheMutableJoinpoint(adviceSpec.getDeclaringType(), adviceSpec.getAdviceMethod(), adviceSpec.getMutableJoinpointType(), targetMethod))
                 return false;
 
-
-            // 2.verify returning and throwing type of advice method signature with target method
-            Generic targetReturningType = targetMethod.isConstructor() 
-                    ? targetMethod.getDeclaringType().asGenericType() : targetMethod.getReturnType();
-
-            // verify returning type
-            Generic adviceReturningParameterType = adviceSpec.getAdviceReturningParameterType();
-            if (adviceReturningParameterType != null
-                    && matchesReturningType(false, adviceMethod, adviceReturningParameterType, targetMethod, targetReturningType) == false) {
-                return false;
-            }
-
-            // verify throwing type
-            Generic adviceThrowingParameterType = adviceSpec.getAdviceThrowingParameterType();
-            if (adviceThrowingParameterType != null
-                    && matchesThrowingType(false, adviceMethod, adviceThrowingParameterType, targetMethod) == false) {
-                return false;
-            }
-
-            // 3.verify parameter type of advice method signature with target method
-            if (matchesParameterTypes(targetMethod, adviceReturningParameterType, adviceThrowingParameterType) == false)
+            // 2.verify parameter type of advice method signature with target method
+            if (!matchesAdviceMethodParameterTypes(targetMethod))
                 return false;
 
             return true;
         }
 
         /**
-         * Matches parameter types of advice method with target class loader at class loading time,
-         * except for adviceReturningParameterType, adviceThrowingParameterType.
+         * Matches parameter types of advice method with target class loader at class loading time.
          * 
          * @param targetMethod  target method in matching
-         * @param adviceReturningParameterType returning type defined via returning argument
-         * @param adviceThrowingParameterType  throwing type defined via throwing argument
          * @return matched or not
          */
-        private boolean matchesParameterTypes(MethodDescription targetMethod, Generic adviceReturningParameterType, Generic adviceThrowingParameterType) {
-            for (Entry<String, NamedPointcutParameter>  entry : adviceSpec.getNamedPointcutParameters().entrySet()) {
-                String paramName = entry.getKey();
-                NamedPointcutParameter pointcutParameterBinding = entry.getValue();
+        private boolean matchesAdviceMethodParameterTypes(MethodDescription targetMethod) {
+            AspectJAdviceSpec.Loaded adviceSpec = getAdviceSpec();
+            TypeDescription declaringType = adviceSpec.getDeclaringType();
+            MethodDescription adviceMethod = adviceSpec.getAdviceMethod();
 
-                Generic paramGeneric = pointcutParameterBinding.getParamType();
-                if (adviceReturningParameterType != null && paramGeneric.equals(adviceReturningParameterType))
+            ParameterList<ParameterDescription.InDefinedShape> targetMethodParameters = targetMethod.asDefined().getParameters();
+            for (ResolvedParameter resolvedParameter : adviceSpec.getResolvedParameters()) {
+                ParameterCategory parameterCategory = resolvedParameter.getParameterCategory();
+                if (ParameterCategory.JOINPOINT_PARAM == parameterCategory || ParameterCategory.MUTABLE_JOINPOINT_PARAM == parameterCategory
+                        || ParameterCategory.PROCEDDING_JOINPOINT_PARAM == parameterCategory || ParameterCategory.STATIC_PART_PARAM == parameterCategory)
                     continue;
-                if (adviceThrowingParameterType != null && paramGeneric.equals(adviceThrowingParameterType))
-                    continue;
 
-                // verify parameter type visibility
-                TypeDescription paramType = paramGeneric.asErasure();
-                if (ClassUtils.isVisibleTo(paramType, targetMethod.getDeclaringType().asErasure()) == false) {
-                    if (LOGGER.isWarnEnabled()) 
-                        LOGGER.warn("Ignored advice method referring to non public and non protected in the same package parameter type under target ClassLoader. \n"
-                                + "  DeclaringType: {} \n"
-                                + "  AdviceMethod: {} \n"
-                                + "    parameter '{}': {} {} \n",
-                                adviceSpec.getDeclaringType().getTypeName(),
-                                MethodUtils.getMethodSignature(adviceSpec.getAdviceMethod()),
-                                paramName, paramType.getVisibility(), paramType
-                        );
+                // analyze target method parameter's binding type
+                String operatedElement = null;
+                Generic adviceMethodMatchingType = resolvedParameter.getParameterType();
+                List<Generic> targetMethodMatchingTypes = null;
 
-                    return false;
+                if (ParameterCategory.THIS_VAR == parameterCategory || ParameterCategory.TARGET_VAR == parameterCategory) {
+                    operatedElement = "TargetObject";
+                    targetMethodMatchingTypes = Collections.singletonList( targetMethod.getDeclaringType().asGenericType() );
+                } else if (ParameterCategory.ARGS_VAR == parameterCategory) {
+                    ParameterDescription parameter = targetMethodParameters.get(resolvedParameter.getArgsIndex());
+
+                    operatedElement = "Argument-" + parameter.getName();
+                    targetMethodMatchingTypes = Collections.singletonList( parameter.getType().asGenericType() );
+                } else if (ParameterCategory.RETURNING_ANNOTATION == parameterCategory) {
+                    operatedElement = "ReturnValue";
+                    targetMethodMatchingTypes = Collections.singletonList( targetMethod.getReturnType().asGenericType() );
+                } else if (ParameterCategory.THROWING_ANNOTATION == parameterCategory) {
+                    operatedElement = "ThrownException";
+                    targetMethodMatchingTypes = targetMethod.getExceptionTypes();
                 }
 
-                // ignore parameter type assignment verified by {@link ExprPointcut}.
+                // verify parameter type's visibility
+                if (operatedElement != null && !isTypeVisible(operatedElement, declaringType, false, 
+                        adviceMethod, targetMethod, adviceMethodMatchingType.asErasure()))
+                    return false;
+
+                // verify parameter type's assignment
+                if (operatedElement != null && !isTypeAssignable(operatedElement, false, true, 
+                        adviceMethod, Collections.singletonList(resolvedParameter.getParameterType()), targetMethod, targetMethodMatchingTypes))
+                    return false;
             }
 
             return true;
@@ -400,13 +388,12 @@ public interface AdviceMatcher extends ElementMatcher<MethodDescription> {
     }
 
 
-    class ByteBuddyAdviceMatcher extends AbstractBase<ByteBuddyAdviceSpec> {
+    class ByteBuddyAdviceMatcher extends AbstractBase<ByteBuddyAdviceSpec.Loaded> {
 
-        private final ByteBuddyAdviceSpec adviceSpec;
+        private static final String NO_EXCEPTION_HANDLER_CLASS = "net.bytebuddy.asm.Advice$NoExceptionHandler";
 
-
-        protected ByteBuddyAdviceMatcher(ByteBuddyAdviceSpec adviceSpec) {
-            this.adviceSpec = adviceSpec;
+        protected ByteBuddyAdviceMatcher(ByteBuddyAdviceSpec.Loaded adviceSpec) {
+            super(adviceSpec);
         }
 
         /**
@@ -417,8 +404,234 @@ public interface AdviceMatcher extends ElementMatcher<MethodDescription> {
          */
         @Override
         public boolean matches(MethodDescription targetMethod) {
-            // TODO: verify class assignment
-            // 1.verify parameter of enter advice method
+            Map<MethodDescription, Boolean> adviceMethods = new HashMap<>(2);
+            ByteBuddyAdviceSpec.Loaded adviceSpec = getAdviceSpec();
+            if (adviceSpec.getEnterAdviceMethod() != null)
+                adviceMethods.put(adviceSpec.getEnterAdviceMethod(), true);
+            if (adviceSpec.getExitAdviceMethod() != null)
+                adviceMethods.put(adviceSpec.getExitAdviceMethod(), false);
+
+            for (Entry<MethodDescription, Boolean> entry : adviceMethods.entrySet()) {
+                MethodDescription adviceMethod = entry.getKey();
+
+                // verify target method
+                if (!matchesTargetConstructor(targetMethod, adviceMethod))
+                    return false;
+
+                // verify parameters of advice method
+                if (!matchesAdviceMethodParameterTypes(targetMethod, adviceMethod))
+                    return false;
+
+                // verify return value of advice method
+                if (!matchesAdviceMethodReturnType(targetMethod, entry.getValue(), adviceMethod))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private boolean matchesTargetConstructor(MethodDescription targetMethod, MethodDescription adviceMethod) {
+            if (!targetMethod.isConstructor()) 
+                return true;
+
+            // skip constructor execution
+            AnnotationDescription.Loadable<OnMethodEnter> onMethodEnterAnnotation = adviceMethod.getDeclaredAnnotations().ofType(OnMethodEnter.class);
+            if (onMethodEnterAnnotation != null) {
+                TypeDescription skipOnType = (TypeDescription) onMethodEnterAnnotation.getValue("skipOn").resolve();
+                if (!skipOnType.represents(void.class)) {
+                    if (LOGGER.isWarnEnabled())
+                        LOGGER.warn("Ignored advice class with enter advice method skipping constructor code execution. \n"
+                                + "  DeclaringType: {} \n"
+                                + "  AdviceMethod: {} \n"
+                                + "  TargetMethod: {} \n",
+                                adviceMethod.getDeclaringType().getTypeName(),
+                                MethodUtils.getMethodSignature(adviceMethod),
+                                MethodUtils.getMethodSignature(targetMethod)
+                        );
+
+                    return false;
+                }
+            }
+
+            // catch exception during constructor call
+            AnnotationDescription.Loadable<OnMethodExit> onMethodExitAnnotation = adviceMethod.getDeclaredAnnotations().ofType(OnMethodExit.class);
+            if (onMethodExitAnnotation != null) {
+                TypeDescription OnThrowableType = (TypeDescription) onMethodExitAnnotation.getValue("onThrowable").resolve();
+                if (!OnThrowableType.getTypeName().equals(NO_EXCEPTION_HANDLER_CLASS)) {
+                    if (LOGGER.isWarnEnabled())
+                        LOGGER.warn("Ignored advice class with exit advice method catching exception during constructor call. \n"
+                                + "  DeclaringType: {} \n"
+                                + "  AdviceMethod: {} \n"
+                                + "  TargetMethod: {} \n",
+                                adviceMethod.getDeclaringType().getTypeName(),
+                                MethodUtils.getMethodSignature(adviceMethod),
+                                MethodUtils.getMethodSignature(targetMethod)
+                        );
+
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private boolean matchesAdviceMethodParameterTypes(MethodDescription targetMethod, MethodDescription adviceMethod) {
+            ParameterList<?> targetMethodParameters = targetMethod.getParameters();
+            for (ParameterDescription parameterDescription : adviceMethod.getParameters()) {
+                String operatedElement = null;
+                Generic adviceMethodMatchingType = parameterDescription.getType();
+                List<Generic> targetMethodMatchingTypes = null;
+
+                // analyze target method element's binding type
+                AnnotationList parameterAnnotations = parameterDescription.getDeclaredAnnotations();
+                if (parameterAnnotations.isAnnotationPresent(Advice.This.class)) {
+                    operatedElement = "TargetObject";
+                    targetMethodMatchingTypes = Collections.singletonList( targetMethod.getDeclaringType().asGenericType() );
+                } else if (parameterAnnotations.isAnnotationPresent(Advice.Argument.class)) {
+                    int argIndex = parameterAnnotations.ofType(Advice.Argument.class).load().value();
+                    if (argIndex < 0 || argIndex >= targetMethod.getParameters().size()) {
+                        if (LOGGER.isWarnEnabled())
+                            LOGGER.warn("Ignored advice class with method annoating @Advice.Argument(value = {}). \n"
+                                    + "  DeclaringType: {} \n"
+                                    + "  AdviceMethod: {} \n"
+                                    + "  TargetMethod: {} \n",
+                                    argIndex,
+                                    adviceMethod.getDeclaringType().getTypeName(),
+                                    MethodUtils.getMethodSignature(adviceMethod),
+                                    MethodUtils.getMethodSignature(targetMethod)
+                            );
+
+                        return false;
+                    }
+
+                    ParameterDescription parameter = targetMethodParameters.get(argIndex);
+
+                    operatedElement = "Argument-" + parameter.getName();
+                    targetMethodMatchingTypes = Collections.singletonList( parameter.getType().asGenericType() );
+                } else if (parameterAnnotations.isAnnotationPresent(Advice.Return.class)) {
+                    operatedElement = "ReturnValue";
+                    targetMethodMatchingTypes = Collections.singletonList( targetMethod.isConstructor()
+                            ? targetMethod.getDeclaringType().asGenericType()
+                            : targetMethod.getReturnType().asGenericType() );
+                } else if (parameterAnnotations.isAnnotationPresent(Advice.Thrown.class)) {
+                    operatedElement = "ThrownExceptions";
+                    targetMethodMatchingTypes = targetMethod.getExceptionTypes();
+
+                    // verify onThrowable type name
+                    TypeDescription onThrowableType = (TypeDescription) adviceMethod.getDeclaredAnnotations()
+                            .ofType(OnMethodExit.class)
+                            .getValue("onThrowable")
+                            .resolve();
+                    if (onThrowableType.getTypeName().equals(NO_EXCEPTION_HANDLER_CLASS))
+                        continue;
+                    if (!isTypeEquals(operatedElement, adviceMethod.getDeclaringType(), true, 
+                            adviceMethod, adviceMethodMatchingType, targetMethod, onThrowableType.asGenericType()))
+                        return false;
+                }
+
+                // verify parameter type's visibility
+                if (operatedElement != null && !isTypeVisible(operatedElement, adviceMethod.getDeclaringType().asErasure(), true, 
+                        adviceMethod, targetMethod, adviceMethodMatchingType.asErasure()))
+                    return false;
+
+                // verify parameter type's assignment
+                if (operatedElement != null && !isTypeAssignable(operatedElement, true, true, 
+                        adviceMethod, Collections.singletonList(adviceMethodMatchingType), targetMethod, targetMethodMatchingTypes))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private boolean matchesAdviceMethodReturnType(MethodDescription targetMethod, boolean isEnterAdviceMethod, MethodDescription adviceMethod) {
+            Generic adviceMethodReturnType = adviceMethod.getReturnType();
+            if (adviceMethodReturnType.represents(void.class))
+                return true;
+
+            AnnotationList methodAnnotations = adviceMethod.getDeclaredAnnotations();
+            if (adviceMethodReturnType.isArray() && !methodAnnotations.isAnnotationPresent(Advice.AssignReturned.AsScalar.class))
+                return true;
+
+            String operatedElement = null;
+            List<Generic> targetMethodMatchingTypes = null;
+            Generic adviceMethodMatchingType = adviceMethodReturnType;
+
+            // analyze target method element's assigning type
+            if (methodAnnotations.isAnnotationPresent(Advice.AssignReturned.ToThis.class)) {
+                if (targetMethod.isStatic()) {
+                    if (LOGGER.isWarnEnabled())
+                        LOGGER.warn("Ignored advice class with method assigning this reference for static target method. \n"
+                                + "  DeclaringType: {} \n"
+                                + "  AdviceMethod: {} \n"
+                                + "  TargetMethod: {} \n",
+                                adviceMethod.getDeclaringType().getTypeName(),
+                                MethodUtils.getMethodSignature(adviceMethod),
+                                MethodUtils.getMethodSignature(targetMethod)
+                        );
+
+                    return false;
+                }
+
+                if (targetMethod.isConstructor() && isEnterAdviceMethod) {
+                    if (LOGGER.isWarnEnabled())
+                        LOGGER.warn("Ignored advice class with method assigning this reference in constructor prior to initialization. \n"
+                                + "  DeclaringType: {} \n"
+                                + "  AdviceMethod: {} \n"
+                                + "  TargetMethod: {} \n",
+                                adviceMethod.getDeclaringType().getTypeName(),
+                                MethodUtils.getMethodSignature(adviceMethod),
+                                MethodUtils.getMethodSignature(targetMethod)
+                        );
+
+                    return false;
+                }
+
+                operatedElement = "TargetObject";
+                targetMethodMatchingTypes = Collections.singletonList( targetMethod.getDeclaringType().asGenericType());
+            } else if (methodAnnotations.isAnnotationPresent(Advice.AssignReturned.ToArguments.class)) {
+                Advice.AssignReturned.ToArguments.ToArgument[] toArguments = methodAnnotations.ofType(Advice.AssignReturned.ToArguments.class).load().value();
+                if (toArguments == null || toArguments.length > 1)
+                    return true;
+
+                int argIndex = toArguments[0].value();
+                if (argIndex < 0 || argIndex >= targetMethod.getParameters().size()) {
+                    if (LOGGER.isWarnEnabled())
+                        LOGGER.warn("Ignored advice class with method annoating @AssignReturned.ToArguments( {ToArgument(value = {})} ). \n"
+                                + "  DeclaringType: {} \n"
+                                + "  AdviceMethod: {} \n"
+                                + "  TargetMethod: {} \n",
+                                argIndex,
+                                adviceMethod.getDeclaringType().getTypeName(),
+                                MethodUtils.getMethodSignature(adviceMethod),
+                                MethodUtils.getMethodSignature(targetMethod)
+                        );
+
+                    return false;
+                }
+
+                ParameterDescription parameter = targetMethod.getParameters().get(argIndex);
+
+                operatedElement = "Argument-" + parameter.getName();
+                targetMethodMatchingTypes = Collections.singletonList( parameter.getType());
+            } else if (methodAnnotations.isAnnotationPresent(Advice.AssignReturned.ToReturned.class)) {
+                operatedElement = "ReturnValue";
+                targetMethodMatchingTypes = Collections.singletonList( targetMethod.getReturnType());
+            } else if (methodAnnotations.isAnnotationPresent(Advice.AssignReturned.ToThrown.class)) {
+                operatedElement = "ThrownException";
+                targetMethodMatchingTypes = new ArrayList<>( targetMethod.getExceptionTypes() ); 
+                targetMethodMatchingTypes.add(RUNTIME_EXCEPTION);
+            }
+
+            // verify parameter type's visibility
+            if (operatedElement != null && !isTypeVisible(operatedElement, adviceMethod.getDeclaringType().asErasure(), true, 
+                    adviceMethod, targetMethod, adviceMethodMatchingType.asErasure()))
+                return false;
+
+            // verify parameter type's assignment
+            if (operatedElement != null && !isTypeAssignable(operatedElement, true, false, 
+                    adviceMethod, Collections.singletonList( adviceMethodMatchingType), targetMethod, targetMethodMatchingTypes))
+                return false;
+
             return true;
         }
     }

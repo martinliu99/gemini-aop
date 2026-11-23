@@ -62,6 +62,7 @@ import net.bytebuddy.description.method.ParameterDescription;
 import net.bytebuddy.description.type.TypeDefinition;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.description.type.TypeDescription.Generic;
+import net.bytebuddy.matcher.ElementMatcher;
 
 /**
  * Parses {@link AdviceSpec} instances from a {@link TypeDescription} or from configuration properties.
@@ -131,7 +132,7 @@ public interface AdviceSpecParser {
             for (AdviceSpecParser adviceSpecParser : adviceSpecParsers) {
                 try {
                     Collection<? extends AdviceSpec> adviceSpecs = adviceSpecParser.parse(factoryContext, declaringType);
-                    if (CollectionUtils.isEmpty(adviceSpecs) == false)
+                    if (!CollectionUtils.isEmpty(adviceSpecs) )
                         return adviceSpecs;
                 } catch (Throwable t) {
                     if (LOGGER.isWarnEnabled())
@@ -230,7 +231,7 @@ public interface AdviceSpecParser {
         @Override
         public AdviceSpec parse(FactoryContext factoryContext, String configKeyPrefix, AdviceSpec existingAdviceSpec) {
             try {
-                if (existingAdviceSpec != null && supports(existingAdviceSpec) == false)
+                if (existingAdviceSpec != null && !supports(existingAdviceSpec))
                     return null;
 
                 return (A) doParse(factoryContext, configKeyPrefix, (A) existingAdviceSpec);
@@ -270,6 +271,19 @@ public interface AdviceSpecParser {
      */
     class ForPojoAdvice extends AbstractBase<PojoAdviceSpec> {
 
+        private static final ElementMatcher<MethodDescription> BEFORE_METHOD_MATCHER = 
+                named("before")
+                .and( 
+                        takesArgument( 0, named( MutableJoinpoint.class.getName() ) ) 
+                );
+
+        private static final ElementMatcher<MethodDescription> AFTER_METHOD_MATCHER = 
+                named("after")
+                .and( 
+                        takesArgument( 0, named( MutableJoinpoint.class.getName() ) ) 
+                );
+
+
         /** 
          * {@inheritDoc}
          */
@@ -287,7 +301,7 @@ public interface AdviceSpecParser {
             boolean beforeAdvice = declaringType.isAssignableTo(io.gemini.api.aop.Advice.Before.class);
             boolean afterAdvice = declaringType.isAssignableTo(io.gemini.api.aop.Advice.After.class);
             boolean aroundAdvice = declaringType.isAssignableTo(io.gemini.api.aop.Advice.Around.class);
-            if (beforeAdvice == false && afterAdvice == false && aroundAdvice == false) {
+            if (!beforeAdvice && !afterAdvice && !aroundAdvice) {
                 return Collections.emptyList();
             }
 
@@ -295,7 +309,7 @@ public interface AdviceSpecParser {
             MethodDescription adviceMethod = resolveAdviceMethod(declaringType);
             PojoAdviceSpec.Unloaded.Default pojoAdviceSpec = new PojoAdviceSpec.Unloaded.Default(
                     PojoAdviceKind.parse(beforeAdvice, afterAdvice, aroundAdvice),
-                    declaringType, declaringType.getTypeName(), adviceMethod
+                    declaringType, adviceMethod
             );
             return Collections.singletonList(pojoAdviceSpec);
         }
@@ -318,32 +332,24 @@ public interface AdviceSpecParser {
 
         private MethodDescription resolveFirstAdviceMethod(TypeDescription declaringType) {
             MethodList<MethodDescription.InDefinedShape> beforeMethodFilter = declaringType.getDeclaredMethods()
-                    .filter(
-                            named("before")
-                            .and( 
-                                    takesArgument( 0, named( MutableJoinpoint.class.getName() ) ) 
-                            )
-            );
-            if (beforeMethodFilter.isEmpty() == false) {
+                    .filter(BEFORE_METHOD_MATCHER);
+            if (!beforeMethodFilter.isEmpty()) {
                 MethodDescription beforeMethod = beforeMethodFilter.getOnly();
 
                 Generic parameterType = beforeMethod.getParameters().get(0).getType();
-                if (TypeDefinition.Sort.PARAMETERIZED == parameterType.getSort() && parameterType.getTypeArguments().size() > 0)
+                if (TypeDefinition.Sort.NON_GENERIC == parameterType.getSort()
+                        || (TypeDefinition.Sort.PARAMETERIZED == parameterType.getSort() && parameterType.getTypeArguments().size() > 0) )
                     return beforeMethod;
             }
 
             MethodList<MethodDescription.InDefinedShape> afterMethodFilter = declaringType.getDeclaredMethods()
-                    .filter( 
-                            named("after")
-                            .and( 
-                                    takesArgument( 0, named( MutableJoinpoint.class.getName() ) ) 
-                            )
-            );
-            if (afterMethodFilter.isEmpty() == false) {
+                    .filter(AFTER_METHOD_MATCHER);
+            if (!afterMethodFilter.isEmpty()) {
                 MethodDescription afterMethod = afterMethodFilter.getOnly();
 
                 Generic parameterType = afterMethod.getParameters().get(0).getType();
-                if (TypeDefinition.Sort.PARAMETERIZED == parameterType.getSort() && parameterType.getTypeArguments().size() > 0)
+                if (TypeDefinition.Sort.NON_GENERIC == parameterType.getSort()
+                        || (TypeDefinition.Sort.PARAMETERIZED == parameterType.getSort() && parameterType.getTypeArguments().size() > 0) )
                     return afterMethod;
             }
 
@@ -393,14 +399,13 @@ public interface AdviceSpecParser {
         @Override
         protected Collection<? extends AspectJAdviceSpec> doParse(FactoryContext factoryContext, TypeDescription declaringType) {
             // validate declaringType
-            if (declaringType.getDeclaredAnnotations().isAnnotationPresent(Aspect.class) == false)
+            if (!declaringType.getDeclaredAnnotations().isAnnotationPresent(Aspect.class))
                 return Collections.emptyList();
 
             // resolve advice methods
             MethodList<MethodDescription.InDefinedShape> declaredMethods = declaringType.getDeclaredMethods();
             Map<String, AspectJAdviceSpec> adviceSpecMap = new LinkedHashMap<>(declaredMethods.size());
             for (MethodDescription adviceMethod : declaredMethods) {
-
                 AspectJAdviceSpec adviceSpec = parseAspectJAdviceSpec(declaringType, adviceMethod);
                 if (adviceSpec == null)
                     continue;
@@ -418,33 +423,10 @@ public interface AdviceSpecParser {
                 adviceSpecMap.put(adviceSpec.getAdviceClassName(), adviceSpec);
             }
 
-            if (adviceSpecMap.size() == 0) {
-                if (LOGGER.isWarnEnabled())
-                    LOGGER.warn("Ignored AspectJ aspect without advice methods. \n"
-                            + "  DeclaringType: {} \n", 
-                            declaringType.getTypeName()
-                    );
-
-                return Collections.emptyList();
-            }
-
             return adviceSpecMap.values();
         }
 
         private AspectJAdviceSpec parseAspectJAdviceSpec(TypeDescription declaringType, MethodDescription adviceMethod) {
-            // validate method modifier
-            if (adviceMethod.isPrivate()) {
-                if (LOGGER.isWarnEnabled())
-                    LOGGER.warn("Ignored private AspectJ advice method. \n"
-                            + "  DeclaringType: {} \n"
-                            + "  AdviceMethod: {} \n",
-                            declaringType.getTypeName(), 
-                            MethodUtils.getMethodSignature(adviceMethod) 
-                    );
-                return null;
-            }
-
-
             // resolve advice annotation
             AnnotationList adviceMethodAnnotations = adviceMethod.getDeclaredAnnotations();
             AnnotationDescription adviceAnnotation = null;
@@ -469,6 +451,17 @@ public interface AdviceSpecParser {
             if (adviceAnnotation == null)
                 return null;
 
+            // validate method modifier
+            if (adviceMethod.isPrivate()) {
+                if (LOGGER.isWarnEnabled())
+                    LOGGER.warn("Ignored private AspectJ advice method. \n"
+                            + "  DeclaringType: {} \n"
+                            + "  AdviceMethod: {} \n",
+                            declaringType.getTypeName(), 
+                            MethodUtils.getMethodSignature(adviceMethod) 
+                    );
+                return null;
+            }
 
             try {
                 return new AspectJAdviceSpec.Unloaded.Default(declaringType, adviceMethod, adviceAnnotation);
@@ -571,9 +564,15 @@ public interface AdviceSpecParser {
      */
     class ForByteBuddyAdvice extends AbstractBase<ByteBuddyAdviceSpec> {
 
+        private static final Map<Boolean, Class<? extends Annotation>> ADVICE_METHOD_ANNOTATIONS;
         private static final Map<Class<? extends Annotation>, Class<? extends Annotation>> ASSIGN_RETURNED_ANNOTATIONS;
 
         static {
+            Map<Boolean, Class<? extends Annotation>> adviceMethods = new HashMap<>(2);
+            adviceMethods.put(Boolean.TRUE, OnMethodEnter.class);
+            adviceMethods.put(Boolean.FALSE, OnMethodExit.class);
+            ADVICE_METHOD_ANNOTATIONS = adviceMethods;
+
             Map<Class<? extends Annotation>, Class<? extends Annotation>> annotations = new HashMap<>();
             annotations.put(Advice.This.class, Advice.AssignReturned.ToThis.class);
             annotations.put(Advice.AllArguments.class, Advice.AssignReturned.ToAllArguments.class);
@@ -581,7 +580,6 @@ public interface AdviceSpecParser {
             annotations.put(Advice.FieldValue.class, Advice.AssignReturned.ToFields.class);
             annotations.put(Advice.Return.class, Advice.AssignReturned.ToReturned.class);
             annotations.put(Advice.Thrown.class, Advice.AssignReturned.ToThrown.class);
-
             ASSIGN_RETURNED_ANNOTATIONS = annotations;
         }
 
@@ -599,95 +597,62 @@ public interface AdviceSpecParser {
          */
         @Override
         public List<? extends ByteBuddyAdviceSpec> doParse(FactoryContext factoryContext, TypeDescription declaringType) {
-            // validate declaringType
-            MethodDescription enterAdviceMethod = null;
-            MethodDescription exitAdviceMethod = null;
-            for (MethodDescription method : declaringType.getDeclaredMethods()) {
-                if (method.getDeclaredAnnotations().isAnnotationPresent(OnMethodEnter.class)) {
-                    if (enterAdviceMethod == null)
-                        enterAdviceMethod = method;
-                    else {
+            // parse advice methods
+            Map<Boolean, MethodDescription> adviceMethods = new HashMap<>(2);
+            for (MethodDescription adviceMethod : declaringType.getDeclaredMethods()) {
+                for (Entry<Boolean, Class<? extends Annotation>> entry : ADVICE_METHOD_ANNOTATIONS.entrySet()) {
+                    Class<? extends Annotation> adviceMethodAnnotation = entry.getValue();
+                    if (!adviceMethod.getDeclaredAnnotations().isAnnotationPresent(adviceMethodAnnotation))
+                        continue;
+
+                    // exist only one advice method for each method type.
+                    Boolean methodType = entry.getKey();
+                    MethodDescription existingAdviceMethod = adviceMethods.get(methodType);
+                    if (existingAdviceMethod != null) {
                         if (LOGGER.isWarnEnabled())
-                            LOGGER.warn("Ignored ByteBuddy advice with more than one @OnMethodEnter annotated advice methods. \n"
+                            LOGGER.warn("Ignored ByteBuddy advice with more than one @{} annotated advice methods. \n"
                                     + "  DeclaringType: {} \n"
-                                    + "  AdviceMethod: {} \n" 
+                                    + "  ExistingAdviceMethod: {} \n" 
                                     + "  AdviceMethod: {} \n", 
+                                    adviceMethodAnnotation.getSimpleName(),
                                     declaringType.getTypeName(),
-                                    MethodUtils.getMethodSignature(enterAdviceMethod),
-                                    MethodUtils.getMethodSignature(method)
+                                    MethodUtils.getMethodSignature(existingAdviceMethod),
+                                    MethodUtils.getMethodSignature(adviceMethod)
                             );
 
                         return Collections.emptyList();
                     }
-                }
 
-                if (method.getDeclaredAnnotations().isAnnotationPresent(OnMethodExit.class)) {
-                    if (exitAdviceMethod == null)
-                        exitAdviceMethod = method;
-                    else {
-                        if (LOGGER.isWarnEnabled())
-                            LOGGER.warn("Ignored ByteBuddy advice with more than one @OnMethodExit annotated advice methods. \n"
-                                    + "  DeclaringType: {} \n"
-                                    + "  AdviceMethod: {} \n"
-                                    + "  AdviceMethod: {} \n", 
-                                    declaringType.getTypeName(),
-                                    MethodUtils.getMethodSignature(exitAdviceMethod),
-                                    MethodUtils.getMethodSignature(method)
-                            );
-
+                    // validate method
+                    if (!doValidateAdviceMethod(declaringType, methodType, adviceMethod))
                         return Collections.emptyList();
+
+
+                    // validate parameter annotation
+                    for (ParameterDescription parameter : adviceMethod.getParameters()) {
+                        if (!doValidateAdviceMethodParameter(declaringType, methodType, adviceMethod, parameter))
+                            return Collections.emptyList();
                     }
+
+                    adviceMethods.put(methodType, adviceMethod);
                 }
             }
 
-            if (enterAdviceMethod == null && exitAdviceMethod == null)
+            if (adviceMethods.size() == 0)
                 return Collections.emptyList();
 
-            if (validateMethod(declaringType, true, enterAdviceMethod) == false
-                    || validateMethod(declaringType, false, exitAdviceMethod) == false )
-                return Collections.emptyList();
+            MethodDescription enterAdviceMethod = adviceMethods.get(Boolean.TRUE);
+            MethodDescription exitAdviceMethod = adviceMethods.get(Boolean.FALSE);
 
-
-            ByteBuddyAdviceSpec.Default byteBuddyAdviceSpec = new ByteBuddyAdviceSpec.Default(
+            ByteBuddyAdviceSpec.Unloaded.Default byteBuddyAdviceSpec = new ByteBuddyAdviceSpec.Unloaded.Default(
                     ByteBuddyAdviceKind.parse(enterAdviceMethod != null, exitAdviceMethod != null),
                     declaringType, enterAdviceMethod, exitAdviceMethod
             );
             return Collections.singletonList(byteBuddyAdviceSpec);
         }
 
-        private boolean validateMethod(TypeDescription declaringType, boolean enterMethod, MethodDescription adviceMethod) {
-            if (adviceMethod == null)
-                return true;
-
-            // 1.validate method
-            if (doValidateMethod(declaringType, enterMethod, adviceMethod) == false)
-                return false;;
-
-
-            // 2.validate parameter annotation
-            for (ParameterDescription parameter : adviceMethod.getParameters()) {
-                if (doValidateParameter(declaringType, enterMethod, adviceMethod, parameter) == false)
-                    return false;
-            }
-
-            return true;
-        }
-
-        protected boolean doValidateMethod(TypeDescription declaringType, boolean enterMethod, MethodDescription adviceMethod) {
-            // is non-static method
-            if (adviceMethod.isStatic() == false) {
-                if (LOGGER.isWarnEnabled())
-                    LOGGER.warn("Ignored ByteBuddy advice with non-static advice method. \n"
-                            + "  DeclaringType: {} \n"
-                            + "  AdviceMethod: {} \n", 
-                            declaringType.getTypeName(),
-                            MethodUtils.getMethodSignature(adviceMethod)
-                    );
-
-                return false;
-            }
-
-            // is private method
+        protected boolean doValidateAdviceMethod(TypeDescription declaringType, boolean enterMethod, MethodDescription adviceMethod) {
+            // 1.is private method
             if (adviceMethod.isPrivate()) {
                 if (LOGGER.isWarnEnabled())
                     LOGGER.warn("Ignored ByteBuddy advice with private advice method. \n"
@@ -700,7 +665,20 @@ public interface AdviceSpecParser {
                 return false;
             }
 
-            // is inline method
+            // 2.is non-static method
+            if (!adviceMethod.isStatic()) {
+                if (LOGGER.isWarnEnabled())
+                    LOGGER.warn("Ignored ByteBuddy advice with non-static advice method. \n"
+                            + "  DeclaringType: {} \n"
+                            + "  AdviceMethod: {} \n", 
+                            declaringType.getTypeName(),
+                            MethodUtils.getMethodSignature(adviceMethod)
+                    );
+
+                return false;
+            }
+
+            // 3.is inline method
             AnnotationList methodAnnotations = adviceMethod.getDeclaredAnnotations();
             AnnotationDescription.Loadable<OnMethodEnter> onMethodEnterAnnotation = methodAnnotations.ofType(OnMethodEnter.class);
             AnnotationDescription onMethodAnnotation = onMethodEnterAnnotation;
@@ -720,15 +698,15 @@ public interface AdviceSpecParser {
             }
 
             if (enterMethod) {
-                // 
+                // 4.skip on enter method
                 AnnotationDescription circularityBreakerAnnotation = methodAnnotations.ofType(EnableCircularityBreaker.class);
                 if (circularityBreakerAnnotation != null && onMethodEnterAnnotation != null) {
-                    Class<?> skipOnClass = onMethodEnterAnnotation.load().skipOn();
-                    if (skipOnClass.equals(Advice.OnDefaultValue.class) 
+                    TypeDescription skipOnType = (TypeDescription) onMethodEnterAnnotation.getValue("skipOn").resolve();
+                    if (skipOnType.represents(Advice.OnDefaultValue.class) 
                             && !adviceMethod.getReturnType().isPrimitive()
                             && !adviceMethod.getReturnType().represents(void.class)) {
                         if (LOGGER.isWarnEnabled())
-                            LOGGER.warn("Ignored ByteBuddy advice with @EnableCircularityBreaker and @OnMethodEnter(skipOn = OnDefaultValue.class) on enter advice method and reference returning type. \n"
+                            LOGGER.warn("Ignored ByteBuddy advice with @EnableCircularityBreaker and @OnMethodEnter(skipOn = OnDefaultValue.class) on enter advice method and reference return type. \n"
                                     + "  DeclaringType: {} \n"
                                     + "  AdviceMethod: {} \n",
                                     declaringType.getTypeName(),
@@ -739,7 +717,7 @@ public interface AdviceSpecParser {
                     }
                 }
 
-                // return on enter advice method
+                // 5.return on enter advice method
                 AnnotationDescription returningAnnotation = methodAnnotations.ofType(Advice.AssignReturned.ToReturned.class);
                 if (returningAnnotation == null)
                     returningAnnotation = methodAnnotations.ofType(Advice.AssignReturned.ToThrown.class);
@@ -761,48 +739,50 @@ public interface AdviceSpecParser {
             return true;
         }
 
-        protected boolean doValidateParameter(TypeDescription declaringType, boolean enterMethod, 
+        protected boolean doValidateAdviceMethodParameter(TypeDescription declaringType, boolean enterMethod, 
                 MethodDescription adviceMethod, ParameterDescription parameter) {
+            // 1.non-readOnly parameter
             for (Entry<Class<? extends Annotation>, Class<? extends Annotation>> entry : ASSIGN_RETURNED_ANNOTATIONS.entrySet()) {
                 AnnotationDescription paramAnnotation = parameter.getDeclaredAnnotations().ofType(entry.getKey());
                 if (paramAnnotation == null) 
                     continue;
 
-                // 1.readOnly parameter
                 boolean readOnly = paramAnnotation.getValue("readOnly").resolve(Boolean.class);
                 if (!readOnly) {
                     if (LOGGER.isWarnEnabled())
-                        LOGGER.warn("Ignored ByteBuddy advice with non-readOnly parameter advice method. \n"
+                        LOGGER.warn("Ignored ByteBuddy advice with non-readOnly parameter on advice method. \n"
                                 + "  DeclaringType: {} \n"
                                 + "  AdviceMethod: {} \n"
-                                + "    WritableParameter: {}, use @{} instand to modify corresponding element. \n", 
+                                + "    IllegalParameter: {}, use @{} to modify {}. \n", 
                                 declaringType.getTypeName(),
                                 MethodUtils.getMethodSignature(adviceMethod),
-                                parameter.getName(), entry.getValue()
+                                parameter.getName(), entry.getValue(), entry.getKey().getSimpleName()
                         );
 
                     return false;
                 }
+            }
 
-                if (enterMethod) {
-                    paramAnnotation = parameter.getDeclaredAnnotations().ofType(Advice.Return.class);
-                    if (paramAnnotation == null)
-                        paramAnnotation = parameter.getDeclaredAnnotations().ofType(Advice.Thrown.class);
+            if (enterMethod) {
+                AnnotationDescription paramAnnotation = parameter.getDeclaredAnnotations().ofType(Advice.Return.class);
+                if (paramAnnotation == null)
+                    paramAnnotation = parameter.getDeclaredAnnotations().ofType(Advice.Thrown.class);
 
-                    if (paramAnnotation != null) {
-                        if (LOGGER.isWarnEnabled())
-                            LOGGER.warn("Ignored ByteBuddy advice with @{} on enter advice method. \n"
-                                    + "  DeclaringType: {} \n"
-                                    + "  AdviceMethod: {} \n"
-                                    + "    Parameter: {}, must only be used on {}. \n", 
-                                    paramAnnotation.getAnnotationType().getActualName(),
-                                    declaringType.getTypeName(),
-                                    MethodUtils.getMethodSignature(adviceMethod),
-                                    parameter.getName(), entry.getValue(), OnMethodExit.class.getSimpleName()
-                            );
-
-                        return false;
+                if (paramAnnotation != null) {
+                    if (LOGGER.isWarnEnabled()) {
+                        String annotationName = paramAnnotation.getAnnotationType().getSimpleName();
+                        LOGGER.warn("Ignored ByteBuddy advice with @{} parameter on enter advice method. \n"
+                                + "  DeclaringType: {} \n"
+                                + "  AdviceMethod: {} \n"
+                                + "    Parameter: @{} {}, must only be used on @OnMethodExit advice method. \n", 
+                                annotationName,
+                                declaringType.getTypeName(),
+                                MethodUtils.getMethodSignature(adviceMethod),
+                                annotationName, parameter.getName()
+                        );
                     }
+
+                    return false;
                 }
             }
 
