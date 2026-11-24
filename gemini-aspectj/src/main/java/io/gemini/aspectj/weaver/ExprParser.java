@@ -45,7 +45,6 @@ import org.aspectj.weaver.tools.PointcutPrimitive;
 import io.gemini.api.BaseException;
 import io.gemini.aspectj.weaver.TypeWorld.WorldLintException;
 import io.gemini.aspectj.weaver.patterns.HasPatternParser;
-import io.gemini.aspectj.weaver.patterns.NameMatcherParser;
 import io.gemini.aspectj.weaver.patterns.PatternParserV2;
 import io.gemini.aspectj.weaver.patterns.TypeNamePatternParser;
 import io.gemini.aspectj.weaver.world.ElementExpr.ClassLoaderExpr;

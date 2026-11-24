@@ -27,6 +27,7 @@ import org.aspectj.weaver.Shadow.Kind;
 import org.aspectj.weaver.ShadowMunger;
 import org.aspectj.weaver.UnresolvedType;
 import org.aspectj.weaver.World;
+import org.aspectj.weaver.patterns.AnyAnnotationTypePattern;
 import org.aspectj.weaver.patterns.Bindings;
 import org.aspectj.weaver.patterns.ExactTypePattern;
 import org.aspectj.weaver.patterns.FastMatchInfo;
@@ -36,7 +37,9 @@ import org.aspectj.weaver.patterns.PatternParser;
 import org.aspectj.weaver.patterns.Pointcut;
 import org.aspectj.weaver.patterns.SignaturePattern;
 import org.aspectj.weaver.patterns.TypePattern;
+import org.aspectj.weaver.patterns.TypePatternList;
 import org.aspectj.weaver.patterns.WildTypePattern;
+import org.aspectj.weaver.patterns.WithinPointcut;
 
 import io.gemini.aspectj.weaver.ReferenceTypes;
 import net.bytebuddy.pool.TypePool.Resolution.NoSuchTypeException;
@@ -91,15 +94,61 @@ public class PatternParserV2 extends PatternParser {
     @Override
     public Pointcut parseSinglePointcut() {
         Pointcut pointcut = super.parseSinglePointcut();
-        if (!(pointcut instanceof KindedPointcut))
-            return pointcut;
 
-        return new KindedPointcutV2( (KindedPointcut) pointcut );
+        if (pointcut instanceof KindedPointcut)
+            return new KindedPointcutV2( (KindedPointcut) pointcut );
+
+        if (pointcut instanceof WithinPointcut)
+            return new WithinPointcutV2( ((WithinPointcut) pointcut).getTypePattern() );
+
+        return pointcut;
     }
 
 
     /**
-     * A {@link WildTypePattern} variant that wraps the resolved {@link ExactTypePattern}
+     * An {@link ExactTypePattern} variant that compares genericSignature and erasureSignature of
+     * two {@link ResolvedType} instances before parsing class file.
+     */
+    static class ExactTypePatternV2 extends ExactTypePattern {
+
+        public ExactTypePatternV2(UnresolvedType type, boolean includeSubtypes, boolean isVarArgs,
+                TypePatternList typeParams) {
+            super(type, includeSubtypes, isVarArgs, typeParams);
+        }
+
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        protected boolean matchesExactly(ResolvedType matchType) {
+            if (!this.getExactType().getErasureSignature().equals(matchType.getErasureSignature()))
+                return false;
+
+            if (this.getExactType().getSignature().equals(matchType.getSignature()))
+                return true;
+
+            return super.matchesExactly(matchType);
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        protected boolean matchesExactly(ResolvedType matchType, ResolvedType annotatedType) {
+            if (!this.getExactType().getErasureSignature().equals(matchType.getErasureSignature()))
+                return false;
+
+            if (this.getExactType().getSignature().equals(matchType.getSignature()))
+                return true;
+
+            return super.matchesExactly(matchType, annotatedType);
+        }
+    }
+
+
+    /**
+     * A {@link WildTypePattern} variant that wraps the resolved {@link ExactTypePatternV2}
      * in a {@link ReferenceTypes.Facade}, deferring actual class loading until the type's
      * delegate is first accessed. Also overrides {@code matchesExactly} to strip anonymous
      * and nested flags via {@link TopTypeFacade} before delegating to the super implementation.
@@ -138,7 +187,7 @@ public class PatternParserV2 extends PatternParser {
                 return exactTypePattern;
 
             ReferenceType type = (ReferenceType) exactTypePattern.getType();
-            return new ExactTypePattern(
+            return new ExactTypePatternV2(
                     new ReferenceTypes.Facade( type, type.getWorld() ),
                     exactTypePattern.isIncludeSubtypes(), 
                     exactTypePattern.isVarArgs(), 
@@ -165,15 +214,16 @@ public class PatternParserV2 extends PatternParser {
             if (!(type instanceof ReferenceType))
                 return super.matchesExactly(type, annotatedType);
 
-            return super.matchesExactly(
-                    new TopTypeFacade( (ReferenceType) type, null), 
-                    new TopTypeFacade( (ReferenceType) annotatedType, null));
+//            if (super.matchesExactly(new TopTypeFacade( (ReferenceType) type, null), annotatedType))
+//                return true;
+//            return super.matchesExactly(new NestedTypeFacade( (ReferenceType) type, null), annotatedType);
+            return super.matchesExactly(new TopTypeFacade( (ReferenceType) type, null), annotatedType);
         }
     }
 
 
     /**
-     * A {@link ReferenceTypes.Facade} that overrides {@link #isAnonymous()} and
+     * A {@link ReferenceTypes.Facade} variant that overrides {@link #isAnonymous()} and
      * {@link #isNested()} to always return {@code false}, ensuring that AspectJ's
      * {@code matchesExactly} logic treats the type as a plain top-level class.
      */
@@ -206,6 +256,44 @@ public class PatternParserV2 extends PatternParser {
         @Override
         public boolean isNested() {
             return false;
+        }
+    }
+
+
+    /**
+     * A {@link ReferenceTypes.Facade} variant that overrides {@link #isAnonymous()} and
+     * {@link #isNested()} to always return {@code false} and {@code true} ensuring that AspectJ's
+     * {@code matchesExactly} logic treats the type as a nest class.
+     */
+    static class NestedTypeFacade extends ReferenceTypes.Facade {
+
+        /**
+         * Creates a {@code TopTypeFacade} that wraps the given reference type and
+         * always reports {@code isAnonymous() == false} and {@code isNested() == false},
+         * preventing AspectJ from skipping top-level type matching.
+         *
+         * @param referenceType the reference type to wrap
+         * @param world         the AspectJ world (may be {@code null} when the type already
+         *                      carries its own world reference)
+         */
+        public NestedTypeFacade(ReferenceType referenceType, World world) {
+            super(referenceType, world);
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public boolean isAnonymous() {
+            return false;
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public boolean isNested() {
+            return true;
         }
     }
 
@@ -313,6 +401,79 @@ public class PatternParserV2 extends PatternParser {
             Pointcut pointcut = new KindedPointcutV2(this.getKind(), this.getSignature().parameterizeWith(typeVariableMap, w), null);
             pointcut.copyLocationFrom(this);
             return pointcut;
+        }
+    }
+
+
+    /**
+     * A {@link WithinPointcut} variant that induces enclosing type name other than 
+     * parsing class file.
+     *
+     */
+    static class WithinPointcutV2 extends WithinPointcut {
+
+        public WithinPointcutV2(TypePattern typePattern) {
+            super(typePattern);
+        }
+
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public FuzzyBoolean fastMatch(FastMatchInfo info) {
+            TypePattern typePattern = getTypePattern();
+            if (typePattern.getAnnotationPattern() instanceof AnyAnnotationTypePattern) {
+                return isWithinType(typePattern, info.getType());
+            }
+            return FuzzyBoolean.MAYBE;
+        }
+
+        private FuzzyBoolean isWithinType(TypePattern typePattern, ResolvedType type) {
+            boolean matched = typePattern.matchesStatically(type);
+            if (matched)
+                return FuzzyBoolean.YES;
+
+            String name = type.getName();  
+            int dollar = name.lastIndexOf('$');
+            int lastDot = name.lastIndexOf(".");
+            while (dollar != -1 && dollar > lastDot) {
+                name = name.substring(0, dollar);
+                ResolvedType outer = type.getWorld().resolve(UnresolvedType.forName(name));
+
+                try {
+                    if (typePattern.matchesStatically(outer)) {
+                        return FuzzyBoolean.YES;
+                    }
+                } catch(Exception e) {
+                    return FuzzyBoolean.NO;
+                }
+
+                dollar = name.lastIndexOf('$');
+            }
+
+            return FuzzyBoolean.NO;
+        }
+
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public Pointcut parameterizeWith(Map<String,UnresolvedType> typeVariableMap, World w) {
+            WithinPointcut ret = new WithinPointcutV2(getTypePattern().parameterizeWith(typeVariableMap, w));
+            ret.copyLocationFrom(this);
+            return ret;
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public Pointcut concretize1(ResolvedType inAspect, ResolvedType declaringType, IntMap bindings) {
+            Pointcut ret = new WithinPointcutV2(getTypePattern());
+            ret.copyLocationFrom(this);
+            return ret;
         }
     }
 }

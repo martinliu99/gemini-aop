@@ -25,7 +25,7 @@ import net.bytebuddy.description.type.TypeDescription;
 
 
 /**
- * Provides AspectJ {@link ReferenceType} implementations that lazily delegate to
+ * Provides AspectJ {@link ReferenceType} implementations that delegate to
  * a resolved type from the Gemini AOP framework {@link TypeWorld}.
  * <p>
  * {@link Facade} wraps an already-resolved {@link ReferenceType}.
@@ -50,13 +50,10 @@ public interface ReferenceTypes {
             super(signature, world);
         }
 
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        public boolean isGenericType() {
-            return false;
+        public WithDelegation(String signature, String signatureErasure, World world) {
+            super(signature, signatureErasure, world);
         }
+
 
         /** 
          * {@inheritDoc} 
@@ -109,19 +106,32 @@ public interface ReferenceTypes {
          */
         @Override
         public boolean equals(Object other) {
-            if (other instanceof ResolvedType) {
-                ResolvedType resolvedType= (ResolvedType) other;
-
-                // quickly compare signature
-                if (!this.getSignature().equals(resolvedType.getSignature()))
-                    return false;
-
-                if (other instanceof WithDelegation)
-                    // fetch delegatee
-                    other = ((WithDelegation) other).getDelegateReferenceType();
-            }
+            if (other instanceof WithDelegation)
+                // fetch delegatee
+                other = ((WithDelegation) other).getDelegateReferenceType();
 
             return this.getDelegateReferenceType().equals(other);
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public boolean isAssignableFrom(ResolvedType other, boolean allowMissing) {
+            if (other instanceof WithDelegation)
+                // fetch delegatee
+                other = ((WithDelegation) other).getDelegateReferenceType();
+
+            return this.getDelegateReferenceType().isAssignableFrom(other, allowMissing);
+        }
+
+        @Override
+        public boolean isCoerceableFrom(ResolvedType other) {
+            if (other instanceof WithDelegation)
+                // fetch delegatee
+                other = ((WithDelegation) other).getDelegateReferenceType();
+
+            return this.getDelegateReferenceType().isCoerceableFrom(other);
         }
     }
 
@@ -138,7 +148,7 @@ public interface ReferenceTypes {
          * @param world         the AspectJ world
          */
         public Facade(ReferenceType referenceType, World world) {
-            super(referenceType.getSignature(), world);
+            super(referenceType.getSignature(), referenceType.getErasureSignature(), world);
 
             setDelegateReferenceType(referenceType);
         }
