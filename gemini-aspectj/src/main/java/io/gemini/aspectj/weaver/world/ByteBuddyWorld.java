@@ -74,7 +74,7 @@ public class ByteBuddyWorld extends World implements TypeWorld {
     private ResolvedType objectType;
 
     // Used to prevent recursion - we record what we are working on and return it if asked again *whilst* working on it
-    private Map<TypeDefinition, TypeVariableReferenceType> typeVariablesInProgress = new ConcurrentHashMap<>();
+    private Map<TypeDefinition, TypeVariableReferenceTypeV2> typeVariablesInProgress = new ConcurrentHashMap<>();
 
 
     /**
@@ -252,7 +252,11 @@ public class ByteBuddyWorld extends World implements TypeWorld {
 
     protected ResolvedType convertType(TypeDefinition typeDefinition) {
         if (TypeDefinition.Sort.NON_GENERIC == typeDefinition.getSort()) {
-            return resolve(typeDefinition.asErasure());
+            TypeDescription typeDescription = typeDefinition.asErasure();
+            ResolvedType type = resolve(typeDescription);
+//            return typeDescription.getTypeVariables().size() > 0
+//                    ? ((ReferenceType) type).getGenericType() : type;
+            return type;
         } else if (TypeDefinition.Sort.PARAMETERIZED == typeDefinition.getSort()) {
             Generic asGeneric = typeDefinition.asGenericType();
             ResolvedType baseType = this.convertType(asGeneric.asRawType());
@@ -277,7 +281,7 @@ public class ByteBuddyWorld extends World implements TypeWorld {
             try {
                 Generic generic = typeDefinition.asGenericType();
                 TypeVariable typeVariable = new TypeVariable(generic.getActualName());
-                TypeVariableReferenceType typeVariableReference = new TypeVariableReferenceType(typeVariable, this);
+                TypeVariableReferenceTypeV2 typeVariableReference = new TypeVariableReferenceTypeV2(typeVariable, this);
                 typeVariablesInProgress.put(typeDefinition, typeVariableReference); // record what we are working on, for recursion case
 
                 TypeList.Generic bounds = generic.getUpperBounds();
@@ -291,6 +295,8 @@ public class ByteBuddyWorld extends World implements TypeWorld {
                 typeVariable.setUpperBound(upperBound);
                 typeVariable.setAdditionalInterfaceBounds(additionalBounds);
 
+                typeVariableReference.setGenericSignature(typeVariable.getGenericSignature());
+                typeVariableReference.setErasureSignature(typeVariable.getErasureSignature());
                 return typeVariableReference;
             } finally {
                 typeVariablesInProgress.remove(typeDefinition); // we have finished working on it
@@ -394,6 +400,25 @@ public class ByteBuddyWorld extends World implements TypeWorld {
         @Override
         public void ignore(org.aspectj.bridge.IMessage.Kind kind) {
             // empty
+        }
+    }
+
+
+    /**
+     * A {@link TypeVariableReferenceType} variant that overrides genericSignature and erasureSignatue.
+     *
+     */
+    static class TypeVariableReferenceTypeV2 extends TypeVariableReferenceType {
+        public TypeVariableReferenceTypeV2(TypeVariable typeVariable, World world) {
+            super(typeVariable, world);
+        }
+
+        protected void setGenericSignature(String genericSignature) {
+            this.signature = genericSignature;
+        }
+
+        protected void setErasureSignature(String erasureSignature) {
+            this.signatureErasure = erasureSignature;
         }
     }
 }
