@@ -19,11 +19,13 @@ import static net.bytebuddy.jar.asm.Opcodes.ALOAD;
 import static net.bytebuddy.jar.asm.Opcodes.ASM9;
 import static net.bytebuddy.jar.asm.Opcodes.ASTORE;
 import static net.bytebuddy.jar.asm.Opcodes.ATHROW;
-import static net.bytebuddy.jar.asm.Opcodes.GOTO;
-import static net.bytebuddy.jar.asm.Opcodes.IFEQ;
+import static net.bytebuddy.jar.asm.Opcodes.DCONST_1;
+import static net.bytebuddy.jar.asm.Opcodes.FCONST_1;
+import static net.bytebuddy.jar.asm.Opcodes.ICONST_1;
 import static net.bytebuddy.jar.asm.Opcodes.IFNE;
 import static net.bytebuddy.jar.asm.Opcodes.INVOKESTATIC;
 import static net.bytebuddy.jar.asm.Opcodes.IRETURN;
+import static net.bytebuddy.jar.asm.Opcodes.LCONST_1;
 import static net.bytebuddy.jar.asm.Opcodes.RETURN;
 import static net.bytebuddy.matcher.ElementMatchers.isPublic;
 import static net.bytebuddy.matcher.ElementMatchers.isStatic;
@@ -38,19 +40,26 @@ import java.util.List;
 
 import io.gemini.aop.weaver.AopWeaver;
 import io.gemini.aop.weaver.BootstrapDispatcher;
+import io.gemini.api.aop.annotation.EnableCircularityBreaker;
 import io.gemini.core.bootstrap.BootstrapClassConsumer;
 import io.gemini.core.loading.ClassLoadingStrategySelector;
 import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.asm.Advice;
 import net.bytebuddy.asm.Advice.OnMethodEnter;
 import net.bytebuddy.asm.Advice.OnMethodExit;
 import net.bytebuddy.asm.AsmVisitorWrapper;
 import net.bytebuddy.asm.AsmVisitorWrapper.ForDeclaredMethods.MethodVisitorWrapper;
+import net.bytebuddy.description.annotation.AnnotationDescription;
+import net.bytebuddy.description.annotation.AnnotationList;
 import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.type.TypeDescription;
+import net.bytebuddy.description.type.TypeDescription.Generic;
 import net.bytebuddy.dynamic.ClassFileLocator;
 import net.bytebuddy.dynamic.DynamicType;
 import net.bytebuddy.dynamic.TypeResolutionStrategy;
 import net.bytebuddy.implementation.Implementation.Context;
+import net.bytebuddy.implementation.StubMethod;
+import net.bytebuddy.implementation.attribute.MethodAttributeAppender;
 import net.bytebuddy.implementation.bytecode.constant.DefaultValue;
 import net.bytebuddy.implementation.bytecode.member.MethodInvocation;
 import net.bytebuddy.implementation.bytecode.member.MethodReturn;
@@ -73,7 +82,7 @@ import net.bytebuddy.utility.JavaConstant;
  *   <li>{@link #wrapMethodImplementation(Class)} – rewrites the advice method body to check
  *       {@link BootstrapDispatcher#isDispatchable()} before executing, preventing re-entrant
  *       dispatch when the advice itself triggers the same instrumented joinpoint.</li>
- *   <li>{@link #wrapMethodCall(Class, TypeDescription, ClassFileLocator)} – replaces the advice method body with an INDY call
+ *   <li>{@link #bridgeMethodCall(Class, TypeDescription, ClassFileLocator)} – replaces the advice method body with an INDY call
  *       that checks dispatchability before delegating to the original advice logic.</li>
  *   <li>{@link #postProcessTargetMethod(int)} – patches the callback slot constant in the
  *       target method's INDY instruction after the advice class has been generated.</li>
@@ -91,11 +100,9 @@ public enum CircularityBreakerCodeGenerator {
     private static final String CIRCULARITY_BREAKER_CLASSNAME = "$CircularityBreaker";
 
     private static final TypeDescription BOOTSTRAP_DISPATCHER_TYPE;
-
     private static final MethodDescription IS_DISPATCHABLE_METHOD;
     private static final MethodDescription DISABLE_DISPATCH_METHOD;
     private static final MethodDescription ENABLE_DISPATCH_METHOD;
-
 
     static {
         BOOTSTRAP_DISPATCHER_TYPE = TypeDescription.ForLoadedType.of(BootstrapDispatcher.class);
@@ -173,44 +180,56 @@ public enum CircularityBreakerCodeGenerator {
      * Wraps the advice method call with a dispatchability guard using an INDY-based delegation.
      * The generated class replaces the method body with an INDY call that checks
      * {@link BootstrapDispatcher#isDispatchable()} before invoking the original advice logic.
+     * 
      * @param adviceClass the original ByteBuddy advice class to wrap
      * @param adviceType the ByeBuddy type description of adviceClass
      * @param classFileLocator the class file locator to locate binary reprensention of adviceType
      * @return a loaded dynamic type containing the wrapped advice class
      */
-    public DynamicType.Loaded<?> wrapMethodCall(Class<?> adviceClass, TypeDescription adviceType, 
+    public DynamicType.Loaded<?> bridgeMethodCall(Class<?> adviceClass, TypeDescription adviceType, 
             ClassFileLocator classFileLocator) {
-        return new ByteBuddy()
-                .redefine(adviceType, classFileLocator)
+        DynamicType.Builder<?> builder = new ByteBuddy()
+                .subclass(Object.class)
                 .name(adviceType.getTypeName() + CIRCULARITY_BREAKER_CLASSNAME)
-                .visit(
-                        new AsmVisitorWrapper.ForDeclaredMethods()
-                        .readerFlags(ClassReader.EXPAND_FRAMES)
-                        .writerFlags(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
-                        .invokable(
-                                adviceMethodMatcher(adviceType),
-                                MethodCallWrapper.INSTANCE
-                        )
-                )
-                .make(TypeResolutionStrategy.Lazy.INSTANCE)
+                ;
+
+        for (MethodDescription adviceMethod : this.getAdviceMethod(adviceType)) {
+            boolean breakCircularity = adviceMethod.getDeclaredAnnotations().isAnnotationPresent(EnableCircularityBreaker.class);
+            builder = builder
+                    // copy method signature
+                    .define(adviceMethod)
+                    .intercept(StubMethod.INSTANCE)
+                    .attribute( MethodAttributeAppender.Explicit.of(adviceMethod) ) 
+                    // redefine method body
+                    .visit(
+                            new AsmVisitorWrapper.ForDeclaredMethods()
+                            .readerFlags(ClassReader.EXPAND_FRAMES)
+                            .writerFlags(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
+                            .invokable(
+                                    named( adviceMethod.getName() )
+                                    .and( takesArguments( adviceMethod.getParameters().asTypeList().asErasures() ) )
+                                    .and( returns( adviceMethod.getReturnType().asErasure() ) ),
+                                breakCircularity ? MethodCallBridger.CIRCULARITY_DETECTED : MethodCallBridger.DIRECT_INDY_CALL
+                            )
+                    );
+        }
+
+        return builder.make(TypeResolutionStrategy.Lazy.INSTANCE)
                 .load(adviceClass.getClassLoader(), ClassLoadingStrategySelector.Default.SINGLETON.select(adviceClass))
                 ;
     }
 
-    private static ElementMatcher<MethodDescription> adviceMethodMatcher(TypeDescription adviceType) {
-        List<ElementMatcher<? super MethodDescription>> adviceMethodMatchers = new ArrayList<>(2);
+    private List<MethodDescription> getAdviceMethod(TypeDescription adviceType) {
+        List<MethodDescription> adviceMethods = new ArrayList<>(2);
         for (MethodDescription method : adviceType.getDeclaredMethods()) {
-            if (method.getDeclaredAnnotations().isAnnotationPresent(OnMethodEnter.class)
-                    && method.getDeclaredAnnotations().isAnnotationPresent(OnMethodExit.class))
+            AnnotationList methodAnnotations = method.getDeclaredAnnotations();
+            if (!methodAnnotations.isAnnotationPresent(OnMethodEnter.class)
+                    && !methodAnnotations.isAnnotationPresent(OnMethodExit.class) )
                 continue;
 
-            adviceMethodMatchers.add(
-                    named( method.getName() )
-                    .and( takesArguments( method.getParameters().asTypeList().asErasures() ) )
-                    .and( returns( method.getReturnType().asErasure() ) )
-            );
+            adviceMethods.add(method);
         }
-        return new ElementMatcher.Junction.Disjunction<MethodDescription>(adviceMethodMatchers);
+        return adviceMethods;
     }
 
 
@@ -387,28 +406,45 @@ public enum CircularityBreakerCodeGenerator {
      * {@link MethodVisitorWrapper} that replaces the advice method body with an INDY call
      * that checks dispatchability before delegating to the original advice logic.
      */
-    static enum MethodCallWrapper implements MethodVisitorWrapper {
+    static enum MethodCallBridger implements MethodVisitorWrapper {
 
-        INSTANCE;
+        DIRECT_INDY_CALL {
+            /**
+             *  {@inheritDoc}
+             */
+            @Override
+            public MethodVisitor wrap(TypeDescription instrumentedType, MethodDescription instrumentedMethod,
+                    MethodVisitor methodVisitor, Context implementationContext, TypePool typePool, int writerFlags,
+                    int readerFlags) {
+
+                return new DirectINDYCallVisitor(methodVisitor, instrumentedMethod);
+            }
+        },
+
+        CIRCULARITY_DETECTED  {
+            /**
+             *  {@inheritDoc}
+             */
+            @Override
+            public MethodVisitor wrap(TypeDescription instrumentedType, MethodDescription instrumentedMethod,
+                    MethodVisitor methodVisitor, Context implementationContext, TypePool typePool, int writerFlags,
+                    int readerFlags) {
+
+                return new CircularityDetectedINDYCallVisitor(methodVisitor, instrumentedMethod);
+            }
+        };
 
 
         /**
-         *  {@inheritDoc}
+         * {@inheritDoc}
          */
         @Override
-        public MethodVisitor wrap(TypeDescription instrumentedType, MethodDescription instrumentedMethod,
+        public abstract MethodVisitor wrap(TypeDescription instrumentedType, MethodDescription instrumentedMethod,
                 MethodVisitor methodVisitor, Context implementationContext, TypePool typePool, int writerFlags,
-                int readerFlags) {
-
-            return new MethodCallVisitor(methodVisitor, instrumentedMethod);
-        }
+                int readerFlags);
 
 
-        /**
-         * ASM {@link MethodVisitor} that replaces the method body with a dispatchability
-         * check followed by an INDY call to the original advice logic.
-         */
-        static class MethodCallVisitor extends MethodVisitor {
+        static abstract class AbstractBase extends MethodVisitor {
 
             private static final String ON_METHOD_ENTER_DESCRIPTOR = TypeDescription.ForLoadedType.of(OnMethodEnter.class).getDescriptor();
             private static final String ON_METHOD_EXIT_DESCRIPTOR = TypeDescription.ForLoadedType.of(OnMethodExit.class).getDescriptor();
@@ -416,7 +452,7 @@ public enum CircularityBreakerCodeGenerator {
             private final MethodDescription instrumentedMethod;
 
 
-            public MethodCallVisitor(MethodVisitor methodVisitor, MethodDescription instrumentedMethod) {
+            protected AbstractBase(MethodVisitor methodVisitor,  MethodDescription instrumentedMethod) {
                 super(ASM9, methodVisitor);
 
                 this.instrumentedMethod = instrumentedMethod;
@@ -447,13 +483,120 @@ public enum CircularityBreakerCodeGenerator {
                 // ignore existing method body
                 this.mv = null; 
 
+                // outut byte code
                 methodVisitor.visitCode();
 
-                Label ifFalse = new Label();
+                doAppend(methodVisitor, instrumentedMethod);
+
+                methodVisitor.visitEnd();
+            }
+
+            protected abstract void doAppend(MethodVisitor methodVisitor, MethodDescription instrumentedMethod);
+
+            protected void invokeAdviceMethod(MethodVisitor methodVisitor, MethodDescription instrumentedMethod,
+                    Generic returnType) {
+                MethodVariableAccess.allArgumentsOf(instrumentedMethod).apply(methodVisitor, null);
+
+                MethodInvocation.invoke(AopWeaver.BOOTSTRAP_DISPATCHER_CALLBACK_METHOD).dynamic(
+                        instrumentedMethod.getName(), 
+                        returnType.asErasure(), 
+                        instrumentedMethod.getParameters().asTypeList().asErasures(), 
+                        Arrays.asList(
+                                JavaConstant.Simple.wrap(TargetMethodWrapper.CALLBACK_SLOT_PLACEHOLDER),
+                                JavaConstant.Simple.wrap(instrumentedMethod.getDeclaringType().getTypeName().replace(CIRCULARITY_BREAKER_CLASSNAME, ""))
+
+                        )
+                )
+                .apply(methodVisitor, null);
+            }
+
+
+            /**
+             * ASM {@link AnnotationVisitor} that forces {@code inline = true} on
+             * {@code @OnMethodEnter} and {@code @OnMethodExit} annotations.
+             */
+            static class AnnotationAttributeModifier extends AnnotationVisitor {
+
+                public AnnotationAttributeModifier(AnnotationVisitor annotationVisitor) {
+                    super(ASM9, annotationVisitor);
+                }
+
+
+                /**
+                 * {@inheritDoc}
+                 */
+                @Override
+                public void visit(String name, Object value) {
+                    super.visit(name, name.equals("inline") ? true : value);
+                }
+
+                /**
+                 * {@inheritDoc}
+                 */
+                @Override
+                public AnnotationVisitor visitAnnotation(String name, String descriptor) {
+                    return new AnnotationAttributeModifier(
+                            super.visitAnnotation(name, descriptor) );
+                }
+
+                /**
+                 * {@inheritDoc}
+                 */
+                @Override
+                public AnnotationVisitor visitArray(String name) {
+                    return new AnnotationAttributeModifier(
+                            super.visitArray(name) );
+                }
+            }
+        }
+
+
+        static class DirectINDYCallVisitor extends AbstractBase {
+
+            public DirectINDYCallVisitor(MethodVisitor methodVisitor, MethodDescription instrumentedMethod) {
+                super(methodVisitor, instrumentedMethod);
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            @Override
+            protected void doAppend(MethodVisitor methodVisitor, MethodDescription instrumentedMethod) {
+                Generic returnType = instrumentedMethod.getReturnType();
+
+                invokeAdviceMethod(methodVisitor, instrumentedMethod, returnType);
+                MethodReturn.of(returnType).apply(methodVisitor, null);
+
+                // compute stack and local size
+                methodVisitor.visitMaxs(0, 0);
+            }
+        }
+
+
+        /**
+         * ASM {@link MethodVisitor} that replaces the method body with a dispatchability
+         * check followed by an INDY call to the original advice logic.
+         */
+        static class CircularityDetectedINDYCallVisitor extends AbstractBase {
+
+            public CircularityDetectedINDYCallVisitor(MethodVisitor methodVisitor, MethodDescription instrumentedMethod) {
+                super(methodVisitor, instrumentedMethod);
+            }
+
+
+            /**
+             * {@inheritDoc}
+             */
+            @Override
+            protected void doAppend(MethodVisitor methodVisitor, MethodDescription instrumentedMethod) {
+                Generic returnType = instrumentedMethod.getReturnType();
+                boolean hasReturn = !returnType.represents(void.class);
+
+                int localVariableSize = instrumentedMethod.getStackSize();
+
                 Label tryStart = new Label();
                 Label tryEnd = new Label();
                 Label handlerStart = new Label();
-                Label finallyStart = new Label();
 
 
                 // 1.check whether is dispatchable before entering try block
@@ -465,10 +608,15 @@ public enum CircularityBreakerCodeGenerator {
                         false
                 );
 
-                methodVisitor.visitJumpInsn(IFEQ, ifFalse);
+                methodVisitor.visitJumpInsn(IFNE, tryStart);
+
+                // return 'default value'
+                returnDefaultValue(methodVisitor, instrumentedMethod, returnType, hasReturn);
 
 
                 // 2.enter try block
+                methodVisitor.visitTryCatchBlock(tryStart, tryEnd, handlerStart, null);
+
                 methodVisitor.visitLabel(tryStart);
 
                 methodVisitor.visitMethodInsn(
@@ -481,21 +629,20 @@ public enum CircularityBreakerCodeGenerator {
 
 
                 // invoke advice method via INDY
-                MethodVariableAccess.allArgumentsOf(instrumentedMethod).apply(methodVisitor, null);
+                invokeAdviceMethod(methodVisitor, instrumentedMethod, returnType);
 
-                MethodInvocation.invoke(AopWeaver.BOOTSTRAP_DISPATCHER_CALLBACK_METHOD).dynamic(
-                        instrumentedMethod.getName(), 
-                        instrumentedMethod.getReturnType().asErasure(), 
-                        instrumentedMethod.getParameters().asTypeList().asErasures(), 
-                        Arrays.asList(
-                                JavaConstant.Simple.wrap("callbackSlotPlaceholder"),
-                                JavaConstant.Simple.wrap(instrumentedMethod.getDeclaringType().getTypeName().replace(CIRCULARITY_BREAKER_CLASSNAME, ""))
+                int returnValueVar = 0;
+                if (hasReturn) {
+                    returnValueVar = localVariableSize++;
+                    MethodVariableAccess.of(returnType).storeAt(returnValueVar);
+                }
 
-                        )
-                )
-                .apply(methodVisitor, null);
+                invokeFinallyBlock(methodVisitor);
 
-                methodVisitor.visitJumpInsn(GOTO, finallyStart);
+                // return 
+                if (hasReturn)
+                    MethodVariableAccess.of(returnType).loadFrom(returnValueVar);
+                MethodReturn.of(returnType).apply(methodVisitor, null);
 
                 // exit try block
                 methodVisitor.visitLabel(tryEnd);
@@ -504,24 +651,53 @@ public enum CircularityBreakerCodeGenerator {
                 // 3.enter exception handler block
                 methodVisitor.visitLabel(handlerStart);
 
-                int exceptionVar = instrumentedMethod.getStackSize();
+                int exceptionVar = localVariableSize++;
                 methodVisitor.visitVarInsn(ASTORE, exceptionVar);
 
-                methodVisitor.visitMethodInsn(
-                        INVOKESTATIC,
-                        BOOTSTRAP_DISPATCHER_TYPE.getInternalName(), 
-                        ENABLE_DISPATCH_METHOD.getName(),
-                        ENABLE_DISPATCH_METHOD.getDescriptor(),
-                        false
-                );
+                invokeFinallyBlock(methodVisitor);
 
                 methodVisitor.visitVarInsn(ALOAD, exceptionVar);
                 methodVisitor.visitInsn(ATHROW);
 
 
-                // 4.enter finally block
-                methodVisitor.visitLabel(finallyStart);
+                // 4.compute stack and local size
+                methodVisitor.visitMaxs(0, localVariableSize);
+            }
 
+            private void returnDefaultValue(MethodVisitor methodVisitor, MethodDescription instrumentedMethod,
+                    Generic returnType, boolean hasReturn) {
+                if (!hasReturn)
+                    return;
+
+                AnnotationDescription.Loadable<OnMethodEnter> onMethodEnterAnnotation = instrumentedMethod.getDeclaredAnnotations().ofType(OnMethodEnter.class);
+                TypeDescription skipOnType = onMethodEnterAnnotation != null 
+                        ? (TypeDescription) onMethodEnterAnnotation.getValue("skipOn").resolve()
+                        : TypeDescription.ForLoadedType.of(void.class);
+
+                // to execute target method
+                // 1) for Advice.OnDefaultValue return non-default value,
+                if (skipOnType.represents(Advice.OnDefaultValue.class)) {
+                    // push non-default value
+                    if (!returnType.isPrimitive()) {
+                        // unsupported scenario: could not create type instance.
+                        ;
+                    } else if (returnType.represents(long.class))
+                        methodVisitor.visitInsn(LCONST_1);
+                    else if (returnType.represents(double.class))
+                        methodVisitor.visitInsn(DCONST_1);
+                    else if (returnType.represents(float.class))
+                        methodVisitor.visitInsn(FCONST_1);
+                    else
+                        methodVisitor.visitInsn(ICONST_1);
+                } else {
+                    // 2) for Advice.OnNonDefaultValue, and others, return default value,
+                    DefaultValue.of(returnType).apply(methodVisitor, null);
+                }
+
+                MethodReturn.of(returnType).apply(methodVisitor, null);
+            }
+
+            private void invokeFinallyBlock(MethodVisitor methodVisitor) {
                 methodVisitor.visitMethodInsn(
                         INVOKESTATIC,
                         BOOTSTRAP_DISPATCHER_TYPE.getInternalName(), 
@@ -529,48 +705,6 @@ public enum CircularityBreakerCodeGenerator {
                         ENABLE_DISPATCH_METHOD.getDescriptor(),
                         false
                 );
-
-
-                // 5.return
-                methodVisitor.visitLabel(ifFalse);
-
-                DefaultValue.of(instrumentedMethod.getReturnType()).apply(methodVisitor, null);
-                MethodReturn.of(instrumentedMethod.getReturnType()).apply(methodVisitor, null);
-
-                methodVisitor.visitTryCatchBlock(tryStart, tryEnd, handlerStart, null);
-
-                methodVisitor.visitMaxs(0, 0);
-                methodVisitor.visitEnd();
-            }
-
-        }
-
-
-        /**
-         * ASM {@link AnnotationVisitor} that forces {@code inline = true} on
-         * {@code @OnMethodEnter} and {@code @OnMethodExit} annotations.
-         */
-        static class AnnotationAttributeModifier extends AnnotationVisitor {
-
-            public AnnotationAttributeModifier(AnnotationVisitor annotationVisitor) {
-                super(ASM9, annotationVisitor);
-            }
-
-            @Override
-            public void visit(String name, Object value) {
-                super.visit(name, name.equals("inline") ? true : value);
-            }
-
-            @Override
-            public AnnotationVisitor visitAnnotation(String name, String descriptor) {
-                return new AnnotationAttributeModifier(
-                        super.visitAnnotation(name, descriptor) );
-            }
-
-            @Override
-            public AnnotationVisitor visitArray(String name) {
-                return new AnnotationAttributeModifier(
-                        super.visitArray(name) );
             }
         }
     }
@@ -581,6 +715,8 @@ public enum CircularityBreakerCodeGenerator {
      * target method's INDY instruction after the advice class has been generated.
      */
     static class TargetMethodWrapper implements MethodVisitorWrapper {
+
+        private static final String CALLBACK_SLOT_PLACEHOLDER = "callbackSlotPlaceholder";
 
         private final int callbackSlot;
 
@@ -624,7 +760,8 @@ public enum CircularityBreakerCodeGenerator {
             public void visitInvokeDynamicInsn(String name, String descriptor, Handle bootstrapMethodHandle,
                     Object... bootstrapMethodArguments) {
                 if (bootstrapMethodHandle.getName().equals(AopWeaver.BOOTSTRAP_DISPATCHER_CALLBACK_METHOD.getName())
-                        && bootstrapMethodHandle.getOwner().equals(BOOTSTRAP_DISPATCHER_TYPE.getInternalName())) {
+                        && bootstrapMethodHandle.getOwner().equals(BOOTSTRAP_DISPATCHER_TYPE.getInternalName())
+                        && CALLBACK_SLOT_PLACEHOLDER.equals(bootstrapMethodArguments[0])) {
                     bootstrapMethodArguments[0] = callbackSlot;
                 }
 
