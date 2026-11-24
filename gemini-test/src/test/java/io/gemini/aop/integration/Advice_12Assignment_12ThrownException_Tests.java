@@ -39,6 +39,7 @@ import net.bytebuddy.asm.Advice.OnMethodExit;
  * 
  * @author   martin.liu
  */
+@SuppressWarnings("unused")
 public class Advice_12Assignment_12ThrownException_Tests {
 
     @Test
@@ -244,7 +245,7 @@ public class Advice_12Assignment_12ThrownException_Tests {
                     new AdviceMethod()
                         .withThrownException(thrownException) );
 
-            return thrownException instanceof ThrownException_Object ? (ThrownException_Object) thrownException : null;
+            return thrownException;
         }
     }
 

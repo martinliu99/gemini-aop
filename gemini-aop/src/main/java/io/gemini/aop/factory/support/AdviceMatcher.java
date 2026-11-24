@@ -122,17 +122,17 @@ public interface AdviceMatcher extends ElementMatcher<MethodDescription> {
          * @param adviceType  the advice type defining advice method
          * @param ignoreAdviceType  ignore advice type or not
          * @param adviceMethod  the advice method
-         * @param adviceMethodElementType  the element type of advice method
+         * @param adviceMethodMatchingType  the element type of advice method
          * @param targetMethod  the target method
-         * @param targetMethodElementType  the element type of target method
+         * @param targetMethodMatchingType  the element type of target method
          * @return equals or not
          */
         protected boolean isTypeEquals(String operatedElement, TypeDefinition adviceType, boolean ignoreAdviceType, 
-                MethodDescription adviceMethod, Generic adviceMethodElementType, 
-                MethodDescription targetMethod, Generic targetMethodElementType) {
-            if (ClassUtils.containsTypeVariable(targetMethodElementType)
-                    ? ClassUtils.equals(adviceMethodElementType.asErasure(), targetMethodElementType.asErasure())
-                    : ClassUtils.equals(adviceMethodElementType, targetMethodElementType))
+                MethodDescription adviceMethod, Generic adviceMethodMatchingType, 
+                MethodDescription targetMethod, Generic targetMethodMatchingType) {
+            if (ClassUtils.containsTypeVariable(targetMethodMatchingType)
+                    ? ClassUtils.equals(adviceMethodMatchingType.asErasure(), targetMethodMatchingType.asErasure())
+                    : ClassUtils.equals(adviceMethodMatchingType, targetMethodMatchingType))
                 return true;
 
             if (LOGGER.isWarnEnabled())
@@ -144,8 +144,8 @@ public interface AdviceMatcher extends ElementMatcher<MethodDescription> {
                         + "    SourceType: {} \n",
                         ignoreAdviceType ? "advice class with method" : "advice method", operatedElement,
                         adviceType.getTypeName(),
-                        MethodUtils.getMethodSignature(adviceMethod), adviceMethodElementType.getTypeName(), 
-                        MethodUtils.getMethodSignature(targetMethod), targetMethodElementType.getTypeName()
+                        MethodUtils.getMethodSignature(adviceMethod), adviceMethodMatchingType.getTypeName(), 
+                        MethodUtils.getMethodSignature(targetMethod), targetMethodMatchingType.getTypeName()
                 );
 
             return false;
@@ -157,7 +157,7 @@ public interface AdviceMatcher extends ElementMatcher<MethodDescription> {
          * @param ignoreAdviceType  ignore advice type or method
          * @param isBindingOperation  binding or assigning operation
          * @param adviceMethod  the advice method
-         * @param adviceMethodElementType  the element type of advice method
+         * @param adviceMethodMatchingTypes  the element type of advice method
          * @param targetMethod  the target method
          * @param targetMethodMatchingTypes  collection of element type of target method
          * @return assignable or not

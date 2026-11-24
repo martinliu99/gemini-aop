@@ -45,6 +45,7 @@ import net.bytebuddy.implementation.bytecode.assign.Assigner;
  * 
  * @author   martin.liu
  */
+@SuppressWarnings("unused")
 public class Advice_12Assignment_03Arguments_Tests {
 
     @Test
@@ -841,7 +842,7 @@ public class Advice_12Assignment_03Arguments_Tests {
         public void before(MutableJoinpoint joinpoint) throws Throwable {
             ORIGIN.set(joinpoint.getArguments());
 
-            joinpoint.setArguments(new Integer(01));
+            joinpoint.setArguments(1);
 
             ExecutionMemento.putAdviceMethodInvoker(BEFORE_ADVICE, 
                     new AdviceMethod()

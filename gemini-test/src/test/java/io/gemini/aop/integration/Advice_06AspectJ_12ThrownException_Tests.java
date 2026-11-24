@@ -34,6 +34,7 @@ import io.gemini.api.aop.Joinpoint.MutableJoinpoint;
  *
  * @author   martin.liu
  */
+@SuppressWarnings("unused")
 public class Advice_06AspectJ_12ThrownException_Tests {
 
     private static final String TARGET_METHOD = TypeInitializer_Aspect.class.getName() + ".thrownException";

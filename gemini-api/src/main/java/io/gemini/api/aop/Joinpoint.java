@@ -66,7 +66,7 @@ public interface Joinpoint {
      * It is impossible to change element values within this
      * array to change the arguments.
      *
-     * @return the argument of the invocation */
+     * @return arguments of the invocation */
     Object[] getArguments();
 
 
@@ -106,7 +106,7 @@ public interface Joinpoint {
         /**
          * Sets arguments that advice wants to substitute for the target method's arguments.
          * 
-         * @param targetObject the target object
+         * @param arguments arguments of the invocation
          */
         void setArguments(Object... arguments);
 

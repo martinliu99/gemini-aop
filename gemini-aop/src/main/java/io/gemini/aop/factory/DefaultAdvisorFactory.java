@@ -293,7 +293,7 @@ class DefaultAdvisorFactory implements AdvisorFactory {
         // check typeMatcher of Advisors
         List<Advisor.PointcutAdvisor> matchedAdvisors = new ArrayList<>();
         for (Advisor advisor : advisors) {
-            PointcutAdvisor pointcutAdvisor = doFastMatchAdvisor(targetType,advisor);
+            PointcutAdvisor pointcutAdvisor = doFastMatchAdvisor(targetType, targetClassLoader, advisor);
             if (pointcutAdvisor == null)
                 continue;
 
@@ -307,10 +307,12 @@ class DefaultAdvisorFactory implements AdvisorFactory {
      * Tests a single advisor's type matcher against the target type.
      *
      * @param targetType the type being loaded
+     * @param targetClassLoader the target class loader
      * @param advisor    the advisor to test
      * @return the advisor cast to {@link Advisor.PointcutAdvisor} if matched, or {@code null}
      */
-    protected Advisor.PointcutAdvisor doFastMatchAdvisor(TypeDescription targetType, Advisor advisor) {
+    protected Advisor.PointcutAdvisor doFastMatchAdvisor(TypeDescription targetType, 
+            ClassLoader targetClassLoader, Advisor advisor) {
         try {
             if (!(advisor instanceof Advisor.PointcutAdvisor))
                 return null;
@@ -325,7 +327,18 @@ class DefaultAdvisorFactory implements AdvisorFactory {
 
             return pointcutAdvisor;
         } catch (Throwable t) {
-            LOGGER.error("Could not filter advisor {}", advisor, t);
+            if (LOGGER.isWarnEnabled())
+                LOGGER.warn("Could not fast match target type with advisor. \n"
+                        + "  TargetType: {} \n"
+                        + "  Advisor: {} \n"
+                        + "  ClassLoader: {} \n"
+                        + "  Error reason: {} \n",
+                        targetType.getTypeName(), 
+                        advisor.getAdvisorName(), 
+                        targetClassLoader, 
+                        t.getMessage(), 
+                        t
+                );
 
             Throwables.throwIfRequired(t);
             return null;
@@ -351,6 +364,7 @@ class DefaultAdvisorFactory implements AdvisorFactory {
             if (targetMethod.isAbstract()
                     || (targetMethod.isSynthetic() && !targetMethod.isBridge()) )
                 continue;
+
             List<Advisor> candidateAdvisors = new ArrayList<>();
             for (Advisor.PointcutAdvisor pointcutAdvisor : pointcutAdvisors) {
                 if (!doMatchAdvisor(targetType, targetClassLoader, targetModule, 
@@ -403,8 +417,8 @@ class DefaultAdvisorFactory implements AdvisorFactory {
 
             return true;
         } catch (Throwable t) {
-            if (LOGGER.isInfoEnabled())
-                LOGGER.info("Could not match joinpoint with pointcut. \n"
+            if (LOGGER.isWarnEnabled())
+                LOGGER.warn("Could not match joinpoint with advisor. \n"
                         + "  Joinpoint: {} \n"
                         + "  Advisor: {} \n"
                         + "  ClassLoader: {} \n"
@@ -761,8 +775,7 @@ class DefaultAdvisorFactory implements AdvisorFactory {
             } finally {
                 ConcurrentMap<String, ResolutionLevel> advisorTypeResolutionLevels = removeAdvisorTypeResolutionLevels(targetType);
                 if (advisorTypeResolutionLevels != null && advisorTypeResolutionLevels.size() != 0)
-                AopMetrics.currentTypeMetrics().addAdvisorResolutuonLevelMap(
-                        advisorTypeResolutionLevels );
+                AopMetrics.currentTypeMetrics().addAdvisorResolutuonLevelMap( advisorTypeResolutionLevels );
             }
         }
 
@@ -770,7 +783,8 @@ class DefaultAdvisorFactory implements AdvisorFactory {
          * {@inheritDoc}
          */
         @Override
-        protected Advisor.PointcutAdvisor doFastMatchAdvisor(TypeDescription targetType, Advisor advisor) {
+        protected Advisor.PointcutAdvisor doFastMatchAdvisor(TypeDescription targetType, 
+                ClassLoader targetClassLoader, Advisor advisor) {
             // match pointcut of advisor and record type resolution info
             TypeResolutionInspector typeResolutionInspector = targetType instanceof TypeResolutionInspector
                     ? (TypeResolutionInspector) targetType : null;
@@ -778,19 +792,53 @@ class DefaultAdvisorFactory implements AdvisorFactory {
                 if (typeResolutionInspector != null)
                     typeResolutionInspector.resetInspection();
 
-                return super.doFastMatchAdvisor(targetType, advisor);
+                return super.doFastMatchAdvisor(targetType, targetClassLoader, advisor);
             } finally {
                 // record type resolution information
-                ResolutionLevel resolutionLevel = null;
-                if (typeResolutionInspector != null) {
-                    resolutionLevel = typeResolutionInspector.getResolutionLevel();
-
-                    Map<String, ResolutionLevel> advisorTypeResolutionLevels = 
-                            getAdvisorTypeResolutionLevels(targetType);
-                    if (ResolutionLevel.NO_RESOLUTION != resolutionLevel)
-                        advisorTypeResolutionLevels.put(advisor.getAdvisorName(), resolutionLevel);
-                } 
+                setResolutionLevel(targetType, advisor, typeResolutionInspector);
             }
+        }
+
+//        /**
+//         * {@inheritDoc}
+//         */
+/*
+        @Override
+        protected boolean doMatchAdvisor(TypeDescription targetType, 
+                ClassLoader targetClassLoader, JavaModule targetModule, 
+                InDefinedShape targetMethod, Advisor.PointcutAdvisor pointcutAdvisor) {
+            // match pointcut of advisor and record type resolution info
+            TypeResolutionInspector typeResolutionInspector = targetType instanceof TypeResolutionInspector
+                    ? (TypeResolutionInspector) targetType : null;
+            try {
+                if (typeResolutionInspector != null)
+                    typeResolutionInspector.resetInspection();
+
+                return super.doMatchAdvisor(targetType, targetClassLoader, targetModule, targetMethod, pointcutAdvisor);
+            } finally {
+                // record type resolution information
+                setResolutionLevel(targetType, pointcutAdvisor, typeResolutionInspector);
+            }
+        }
+*/
+
+        private void setResolutionLevel(TypeDescription targetType, Advisor advisor,
+                TypeResolutionInspector typeResolutionInspector) {
+            if (typeResolutionInspector == null)
+                return;
+
+            ResolutionLevel resolutionLevel = typeResolutionInspector.getResolutionLevel();
+            if (ResolutionLevel.NO_RESOLUTION == resolutionLevel)
+                return;
+
+
+            Map<String, ResolutionLevel> advisorTypeResolutionLevels = getAdvisorTypeResolutionLevels(targetType);
+            ResolutionLevel existingResolutionLevel = advisorTypeResolutionLevels.get(advisor.getAdvisorName());
+            if (existingResolutionLevel == null)
+                existingResolutionLevel = ResolutionLevel.NO_RESOLUTION;;
+
+            if (existingResolutionLevel.getLevelCode() < resolutionLevel.getLevelCode())
+                advisorTypeResolutionLevels.put(advisor.getAdvisorName(), resolutionLevel);
         }
     }
 }

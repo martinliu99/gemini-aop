@@ -291,6 +291,7 @@ public class Target_02TargetMethod_Tests {
                 IMPLEMENTOR_DEFAULT_METHOD = implementorDefaultMethod;
             }
 
+            @Override
             public void defaultMethod() {
                 DefaultMethod_Object.super.defaultMethod();
             }

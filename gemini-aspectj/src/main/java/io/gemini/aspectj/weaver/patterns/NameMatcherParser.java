@@ -37,7 +37,7 @@ import net.bytebuddy.matcher.StringMatcher;
  *
  * @author   martin.liu
  */
-enum NameMatcherParser {
+public enum NameMatcherParser {
 
     INSTANCE;
 

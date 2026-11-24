@@ -39,7 +39,7 @@ import io.gemini.core.util.StringUtils;
  *
  * @author   martin.liu
  */
-public interface Advisor extends Ordered, Comparable<Object> {
+public interface Advisor extends Ordered, Comparable<Advisor> {
 
     /**
      * Returns the unique name of this advisor, used for identification and logging.
@@ -143,8 +143,8 @@ public interface Advisor extends Ordered, Comparable<Object> {
          * {@inheritDoc}
          */
         @Override
-        public int compareTo(Object o) {
-            if (o == null || !(o instanceof Advisor)) return 1;
+        public int compareTo(Advisor o) {
+            if (o == null) return 1;
             return this.getAdvisorName().compareTo( 
                     ((Advisor )o).getAdvisorName());
         }

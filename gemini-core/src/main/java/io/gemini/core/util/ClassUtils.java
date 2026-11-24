@@ -497,7 +497,7 @@ public abstract class ClassUtils {
     /**
      * Detects type variables exist in the given generic type.
      * 
-     * @param type
+     * @param type the type to detect
      * @return contain type variable or not
      */
     public static boolean containsTypeVariable(Generic type) {

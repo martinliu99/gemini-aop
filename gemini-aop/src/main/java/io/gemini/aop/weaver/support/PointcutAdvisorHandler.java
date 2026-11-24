@@ -134,7 +134,7 @@ public interface PointcutAdvisorHandler {
                     continue;
 
                 PointcutAdvisor pointcutAdvisor = (PointcutAdvisor) advisor;
-                if (!(isCandidateAdvisor(pointcutAdvisor)))
+                if (!isCandidateAdvisor(pointcutAdvisor))
                     continue;
 
                 candidateAdvisors.add(pointcutAdvisor);

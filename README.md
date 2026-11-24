@@ -102,13 +102,13 @@ public class MyAdvice extends Advice.AbstractBeforeAfter<String, RuntimeExceptio
     public void before(MutableJoinpoint<String, RuntimeException> joinpoint) throws Throwable {
         // Modify arguments before target method executes
         String request = (String) joinpoint.getArguments()[0];
-        joinpoint.getArguments()[0] = "modified-" + request;
+        joinpoint.setArguments("modified-" + request);
     }
 
     @Override
     public void after(MutableJoinpoint<String, RuntimeException> joinpoint) throws Throwable {
         // Handle return value after target method executes
-        String result = joinpoint.getReturning();
+        String result = joinpoint.getReturnValue();
         // ...
     }
 }
@@ -130,11 +130,11 @@ public class MyAspect {
         // before logic
     }
 
-    @AfterReturning(pointcut = "process()", returning = "returning")
+    @AfterReturning(pointcut = "process()", returning = "returnValue")
     public Object after(MutableJoinpoint<Response<String>, RuntimeException> joinpoint,
-                        Response<String> returning) throws Throwable {
+                        Response<String> returnValue) throws Throwable {
         // after returning logic
-        return returning;
+        return returnValue;
     }
 }
 ```
@@ -244,12 +244,6 @@ aop.classScanner.acceptPackages = com.example.aspects*
 
 # Diagnostic mode: DISABLED | SIMPLE | DEBUG
 aop.launcher.diagnosticLevel = DISABLED
-
-# Whether to share AspectClassLoader
-aop.factory.shareAspectClassLoader = true
-
-# Conflicting target ClassLoaders (may load the same class)
-aop.factory.conflictTargetClassLoaders = com.example.RunnerClassLoader, com.example.RunnerClassLoader2
 ```
 
 ---
@@ -423,15 +417,14 @@ public class MyAdvice extends Advice.AbstractBeforeAfter<String, RuntimeExceptio
 
     @Override
     public void before(MutableJoinpoint<String, RuntimeException> joinpoint) throws Throwable {
-        // 在目标方法执行前修改参数
         String request = (String) joinpoint.getArguments()[0];
-        joinpoint.getArguments()[0] = "modified-" + request;
+        joinpoint.setArguments("modified-" + request);
     }
 
     @Override
     public void after(MutableJoinpoint<String, RuntimeException> joinpoint) throws Throwable {
         // 在目标方法执行后处理返回值
-        String result = joinpoint.getReturning();
+        String result = joinpoint.getReturnValue();
         // ...
     }
 }
@@ -453,11 +446,11 @@ public class MyAspect {
         // before logic
     }
 
-    @AfterReturning(pointcut = "process()", returning = "returning")
+    @AfterReturning(pointcut = "process()", returning = "returnValue")
     public Object after(MutableJoinpoint<Response<String>, RuntimeException> joinpoint,
-                        Response<String> returning) throws Throwable {
+                        Response<String> returnValue) throws Throwable {
         // after returning logic
-        return returning;
+        return returnValue;
     }
 }
 ```
@@ -567,12 +560,6 @@ aop.classScanner.acceptPackages = com.example.aspects*
 
 # 诊断模式：DISABLED | SIMPLE | DEBUG
 aop.launcher.diagnosticLevel = DISABLED
-
-# 是否共享 AspectClassLoader
-aop.factory.shareAspectClassLoader = true
-
-# 存在冲突的目标 ClassLoader（可能加载同一个类）
-aop.factory.conflictTargetClassLoaders = com.example.RunnerClassLoader, com.example.RunnerClassLoader2
 ```
 
 ---

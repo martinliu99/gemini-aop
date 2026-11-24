@@ -40,8 +40,7 @@ public class Pointcut_03Joinpoint_12ThrownException_Tests {
     public void testUpcastedType() {
         try {
             new ThrownException_Object().thrownException();
-        } catch (Exception e) {
-        }
+        } catch (Exception e) { /* do nothing */ }
 
         {
             TargetMethod targetMethodInvoker = ExecutionMemento.getTargetMethodInvoker(ThrownException_Object.TARGET_METHOD);

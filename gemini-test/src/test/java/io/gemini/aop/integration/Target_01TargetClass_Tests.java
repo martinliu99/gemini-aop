@@ -199,26 +199,6 @@ public class Target_01TargetClass_Tests {
         }
     }
 
-//    @Advisor(inheritClassLoaderMatcher = false, inheritTypeMatcher = false, perInstance = false)
-//    @ExprPointcut(pointcutExpression = JdkClass2_Aspect.POINTCUT_EXPRESSION)
-//    public static class TestAdvice2 {
-//
-//        @Advice.OnMethodEnter(inline = false, prependLineNumber = true)
-//        public static void beforeInstanceMethod(
-//                @Advice.This Object targetObject
-////                @Advice.AllArguments(readOnly = true, typing = Assigner.Typing.DYNAMIC) Object[] arguments
-//        ) throws Throwable {
-//            System.out.println("before InstanceMethod2: " + targetObject);
-//        }
-//
-//
-//        @Advice.OnMethodExit(inline = false)
-//        public static void afterInstanceMethod(
-//                ) throws Throwable {
-//            System.out.println("after InstanceMethod2");
-//        }
-//    }
-
 
     @Test
     public void testByteCode1x() {
@@ -391,9 +371,6 @@ public class Target_01TargetClass_Tests {
         }
 
 
-        /**
-         * @param joinpoint the mutable joinpoint providing access to target object, arguments, and result
-         */
         @SuppressWarnings("rawtypes")
         @ConditionalOnClassLoader(classLoaderExpression = "AppClassLoader")
         @After(POINTCUT_EXPRESSION)

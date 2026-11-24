@@ -641,8 +641,8 @@ public interface AdviceSpecParser {
             if (adviceMethods.size() == 0)
                 return Collections.emptyList();
 
-            MethodDescription enterAdviceMethod = adviceMethods.get(Boolean.TRUE);
-            MethodDescription exitAdviceMethod = adviceMethods.get(Boolean.FALSE);
+            MethodDescription enterAdviceMethod = adviceMethods.get(true);
+            MethodDescription exitAdviceMethod = adviceMethods.get(false);
 
             ByteBuddyAdviceSpec.Unloaded.Default byteBuddyAdviceSpec = new ByteBuddyAdviceSpec.Unloaded.Default(
                     ByteBuddyAdviceKind.parse(enterAdviceMethod != null, exitAdviceMethod != null),

@@ -35,6 +35,7 @@ import io.gemini.api.aop.Joinpoint.MutableJoinpoint;
  *
  * @author   martin.liu
  */
+@SuppressWarnings("unused")
 public class Advice_06AspectJ_02TargetObject_Tests {
 
     private final static Logger LOGGER = LoggerFactory.getLogger(Advice_06AspectJ_02TargetObject_Tests.class);

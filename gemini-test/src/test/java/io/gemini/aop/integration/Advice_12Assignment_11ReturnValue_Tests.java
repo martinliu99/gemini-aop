@@ -44,6 +44,7 @@ import net.bytebuddy.implementation.bytecode.assign.Assigner;
  * 
  * @author   martin.liu
  */
+@SuppressWarnings({"unused", "VoidUsed"})
 public class Advice_12Assignment_11ReturnValue_Tests {
 
     @Test
