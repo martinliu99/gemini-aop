@@ -15,20 +15,14 @@
  */
 package io.gemini.aspectj.weaver.patterns;
 
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.reflect.Method;
 import java.util.Arrays;
 
 import org.aspectj.weaver.ResolvedType;
+import org.aspectj.weaver.UnresolvedType;
 import org.aspectj.weaver.patterns.PatternParser;
 import org.aspectj.weaver.patterns.TypePattern;
 import org.aspectj.weaver.patterns.WildTypePattern;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import io.gemini.core.util.ReflectionUtils;
-import io.gemini.core.util.Throwables;
 import net.bytebuddy.matcher.ElementMatcher;
 
 
@@ -45,7 +39,7 @@ import net.bytebuddy.matcher.ElementMatcher;
  */
 public class TypeNamePatternParser extends PatternParser {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(TypeNamePatternParser.class);
+//    private static final Logger LOGGER = LoggerFactory.getLogger(TypeNamePatternParser.class);
 
     /**
      * Creates a new {@code TypeNamePatternParser} for the given expression.
@@ -79,24 +73,24 @@ public class TypeNamePatternParser extends PatternParser {
      */
     static class WildTypeNamePattern extends WildTypePattern {
 
-        private static final MethodHandle MATCHES_EXACTLY_BY_NAME_METHOD_HANDLE;
+//        private static final MethodHandle MATCHES_EXACTLY_BY_NAME_METHOD_HANDLE;
 
         private final ElementMatcher<String> nameMatcher;
 
-        static {
-            Class<WildTypePattern> clazz = WildTypePattern.class;
-            String methodName = "matchesExactlyByName";
-            MethodHandle methodHanlde = null;
-            try {
-                Method method = clazz.getDeclaredMethod(methodName, String.class, boolean.class, boolean.class);
-                ReflectionUtils.makeAccessible(clazz, method);
-
-                methodHanlde = MethodHandles.lookup().unreflect(method);
-            } catch (Exception e) {
-                LOGGER.error("Could not fetch method handle {} of class {}", methodName, clazz, e);
-            }
-            MATCHES_EXACTLY_BY_NAME_METHOD_HANDLE = methodHanlde;
-        }
+//        static {
+//            Class<WildTypePattern> clazz = WildTypePattern.class;
+//            String methodName = "matchesExactlyByName";
+//            MethodHandle methodHanlde = null;
+//            try {
+//                Method method = clazz.getDeclaredMethod(methodName, String.class, boolean.class, boolean.class);
+//                ReflectionUtils.makeAccessible(clazz, method);
+//
+//                methodHanlde = MethodHandles.lookup().unreflect(method);
+//            } catch (Exception e) {
+//                LOGGER.error("Could not fetch method handle {} of class {}", methodName, clazz, e);
+//            }
+//            MATCHES_EXACTLY_BY_NAME_METHOD_HANDLE = methodHanlde;
+//        }
 
 
         /**
@@ -134,17 +128,44 @@ public class TypeNamePatternParser extends PatternParser {
             if (nameMatcher != null)
                 return nameMatcher.matches(typeName);
 
-            try {
-                return (boolean) MATCHES_EXACTLY_BY_NAME_METHOD_HANDLE.invoke(
-                        this, 
-                        typeName, 
-                        false, 
-                        false
-                    );
-            } catch (Throwable t) {
-                Throwables.throwIfRequired(t);
-                return false;
-            }
+//            try {
+//                boolean result = (boolean) MATCHES_EXACTLY_BY_NAME_METHOD_HANDLE.invoke(
+//                        this, 
+//                        typeName, 
+//                        false, 
+//                        false
+//                    );
+//                if (result)
+//                    return true;
+//
+//                return result = (boolean) MATCHES_EXACTLY_BY_NAME_METHOD_HANDLE.invoke(
+//                        this, 
+//                        typeName, 
+//                        false, 
+//                        true
+//                    );
+//            } catch (Throwable t) {
+//                Throwables.throwIfRequired(t);
+//                return false;
+//            }
+
+            boolean matched = super.matchesStatically(type.getWorld().resolve(UnresolvedType.forName(typeName)));
+            if (matched)
+                return true;
+
+            String name = type.getName();  
+            int dollar = name.lastIndexOf('$');  
+            while (dollar != -1) {  
+                name = name.substring(0, dollar);  
+                // 仅当模式按名字可能匹配时才 resolve  
+                ResolvedType outer = type.getWorld().resolve(UnresolvedType.forName(name));  
+                if (super.matchesStatically(outer)) {  
+                    return true;  
+                }  
+                dollar = name.lastIndexOf('$');  
+            }  
+
+            return false;
         }
     }
 }
